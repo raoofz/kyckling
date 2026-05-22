@@ -1,7 +1,7 @@
 {
   "version": 2,
-  "installCommand": "pnpm install --frozen-lockfile",
-  "buildCommand": "pnpm run db:push && pnpm --filter @workspace/poultry-manager run build && node artifacts/api-server/build-vercel.mjs",
+  "installCommand": "pnpm install --no-frozen-lockfile",
+  "buildCommand": "pnpm --filter @workspace/poultry-manager run build && pnpm --filter @workspace/api-server run build:vercel",
   "outputDirectory": "artifacts/poultry-manager/dist/public",
   "framework": null,
   "functions": {
