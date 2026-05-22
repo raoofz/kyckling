@@ -348,7 +348,7 @@ function DecisionView({ result }: { result: DecisionResult }) {
 export default function AdvancedAnalysis() {
   const { isAdmin } = useAuth();
   const { toast } = useToast();
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
 
   const [module, setModule] = useState<Module>(null);
   const [loading, setLoading] = useState(false);
@@ -402,7 +402,7 @@ export default function AdvancedAnalysis() {
       const res = await fetch(endpointMap[mod], {
         method: "POST", credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lang: "ar" }),
+        body: JSON.stringify({ lang }),
       });
       if (!res.ok) throw new Error((await res.json()).error ?? t("adv.error.analysis"));
       const data = await res.json();

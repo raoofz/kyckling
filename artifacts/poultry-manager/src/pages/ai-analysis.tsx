@@ -267,7 +267,7 @@ function QuickUpload({ onDone }: { onDone: () => void }) {
 export default function AiAnalysis() {
   const { isAdmin } = useAuth();
   const { toast } = useToast();
-  const { t } = useLanguage();
+  const { t, dir } = useLanguage();
   const qc = useQueryClient();
   const [filterCategory, setFilterCategory] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
@@ -318,7 +318,7 @@ export default function AiAnalysis() {
   });
 
   return (
-    <div className="p-4 md:p-6 space-y-6 max-w-5xl mx-auto" dir="rtl">
+    <div className="p-4 md:p-6 space-y-6 max-w-5xl mx-auto" dir={dir}>
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -439,7 +439,7 @@ export default function AiAnalysis() {
       )}
 
       <AlertDialog open={deleteImageId !== null} onOpenChange={open => !open && setDeleteImageId(null)}>
-        <AlertDialogContent dir="rtl">
+        <AlertDialogContent dir={dir}>
           <AlertDialogHeader>
             <AlertDialogTitle>{t("ai.delete.dialog.title")}</AlertDialogTitle>
             <AlertDialogDescription>{t("ai.delete.dialog.desc")}</AlertDialogDescription>
