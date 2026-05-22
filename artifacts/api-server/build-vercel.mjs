@@ -14,23 +14,23 @@ async function buildVercel() {
     platform: "node",
     bundle: true,
     format: "cjs",
-    outfile: path.resolve(rootDir, "api/handler.js"),
+    outfile: path.resolve(rootDir, "api/_server.js"),
     logLevel: "info",
     external: [
       "*.node",
       "sharp",
       "pg-native",
-      "pino",
-      "pino-http",
-      "pino-pretty",
-      "thread-stream",
-      "sonic-boom",
     ],
     sourcemap: false,
+    define: {
+      "import.meta.url": "undefined",
+    },
     banner: {
       js: `const { createRequire: __cr } = require('node:module');
 const __path = require('node:path');
 globalThis.require = __cr(__filename);
+globalThis.__filename = __filename;
+globalThis.__dirname = __path.dirname(__filename);
 `,
     },
   });

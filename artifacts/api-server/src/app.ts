@@ -14,13 +14,9 @@ import { seedUsers } from "./lib/seed";
 import { db, pool } from "@workspace/db";
 import { sql } from "drizzle-orm";
 
-const __appDir = (() => {
-  try {
-    return path.dirname(fileURLToPath(import.meta.url));
-  } catch {
-    return typeof __dirname !== "undefined" ? __dirname : process.cwd();
-  }
-})();
+const __appDir = typeof __dirname !== "undefined"
+  ? __dirname
+  : path.dirname(fileURLToPath(import.meta.url));
 
 const app: Express = express();
 const isProd = process.env.NODE_ENV === "production";
