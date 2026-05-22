@@ -417,6 +417,113 @@ export async function runMigrations() {
       CREATE INDEX IF NOT EXISTS "idx_tasks_completed" ON "tasks" ("completed");
     `);
 
+    // ── Farm upgrade tables ──────────────────────────────────────────────────
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS "incubators" (
+        "id" SERIAL PRIMARY KEY,
+        "name" TEXT NOT NULL,
+        "model" TEXT,
+        "capacity" INTEGER NOT NULL,
+        "status" TEXT NOT NULL DEFAULT 'active',
+        "location" TEXT,
+        "purchase_date" DATE,
+        "purchase_cost" NUMERIC(14,2),
+        "notes" TEXT,
+        "created_at" TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS "incubator_readings" (
+        "id" SERIAL PRIMARY KEY,
+        "incubator_id" INTEGER NOT NULL REFERENCES "incubators"("id") ON DELETE CASCADE,
+        "temperature" NUMERIC(5,2) NOT NULL,
+        "humidity" NUMERIC(5,2) NOT NULL,
+        "recorded_at" TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS "idx_readings_incubator_id" ON "incubator_readings" ("incubator_id");
+      CREATE INDEX IF NOT EXISTS "idx_readings_recorded_at" ON "incubator_readings" ("recorded_at" DESC);
+
+      CREATE TABLE IF NOT EXISTS "incubator_alerts" (
+        "id" SERIAL PRIMARY KEY,
+        "incubator_id" INTEGER NOT NULL REFERENCES "incubators"("id") ON DELETE CASCADE,
+        "type" TEXT NOT NULL,
+        "message" TEXT NOT NULL,
+        "severity" TEXT NOT NULL DEFAULT 'warning',
+        "acknowledged" BOOLEAN NOT NULL DEFAULT FALSE,
+        "acknowledged_by" INTEGER,
+        "created_at" TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS "idx_alerts_incubator_id" ON "incubator_alerts" ("incubator_id");
+
+      CREATE TABLE IF NOT EXISTS "suppliers" (
+        "id" SERIAL PRIMARY KEY,
+        "name" TEXT NOT NULL,
+        "contact" TEXT,
+        "phone" TEXT,
+        "address" TEXT,
+        "specialization" TEXT,
+        "rating" INTEGER DEFAULT 0,
+        "total_orders" INTEGER DEFAULT 0,
+        "notes" TEXT,
+        "created_at" TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS "customers" (
+        "id" SERIAL PRIMARY KEY,
+        "name" TEXT NOT NULL,
+        "contact" TEXT,
+        "phone" TEXT,
+        "address" TEXT,
+        "type" TEXT DEFAULT 'retail',
+        "total_purchases" INTEGER DEFAULT 0,
+        "total_spent" NUMERIC(14,2) DEFAULT 0,
+        "notes" TEXT,
+        "created_at" TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+
+      CREATE TABLE IF NOT EXISTS "sales" (
+        "id" SERIAL PRIMARY KEY,
+        "customer_id" INTEGER REFERENCES "customers"("id") ON DELETE SET NULL,
+        "hatching_cycle_id" INTEGER REFERENCES "hatching_cycles"("id") ON DELETE SET NULL,
+        "item_type" TEXT NOT NULL,
+        "quantity" INTEGER NOT NULL,
+        "unit_price" NUMERIC(14,2) NOT NULL,
+        "total_price" NUMERIC(14,2) NOT NULL,
+        "date" DATE NOT NULL,
+        "notes" TEXT,
+        "created_at" TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS "idx_sales_date" ON "sales" ("date" DESC);
+      CREATE INDEX IF NOT EXISTS "idx_sales_customer_id" ON "sales" ("customer_id");
+
+      CREATE TABLE IF NOT EXISTS "expenses" (
+        "id" SERIAL PRIMARY KEY,
+        "category" TEXT NOT NULL,
+        "description" TEXT NOT NULL,
+        "amount" NUMERIC(14,2) NOT NULL,
+        "date" DATE NOT NULL,
+        "supplier_id" INTEGER REFERENCES "suppliers"("id") ON DELETE SET NULL,
+        "incubator_id" INTEGER REFERENCES "incubators"("id") ON DELETE SET NULL,
+        "hatching_cycle_id" INTEGER REFERENCES "hatching_cycles"("id") ON DELETE SET NULL,
+        "notes" TEXT,
+        "created_at" TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS "idx_expenses_date" ON "expenses" ("date" DESC);
+      CREATE INDEX IF NOT EXISTS "idx_expenses_category" ON "expenses" ("category");
+
+      CREATE TABLE IF NOT EXISTS "azolla_production" (
+        "id" SERIAL PRIMARY KEY,
+        "date" DATE NOT NULL,
+        "quantity_kg" NUMERIC(10,2) NOT NULL,
+        "pond_area_sqm" NUMERIC(10,2),
+        "estimated_savings" NUMERIC(14,2),
+        "notes" TEXT,
+        "created_at" TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS "idx_azolla_date" ON "azolla_production" ("date" DESC);
+
+      ALTER TABLE "hatching_cycles" ADD COLUMN IF NOT EXISTS "incubator_id" INTEGER;
+    `);
+
     logger.info("All database tables ensured");
   } catch (err) {
     logger.error({ err }, "Migration failed");

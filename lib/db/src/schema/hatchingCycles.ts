@@ -19,6 +19,7 @@ export const hatchingCyclesTable = pgTable("hatching_cycles", {
   lockdownTemperature: numeric("lockdown_temperature", { precision: 5, scale: 2 }),
   lockdownHumidity: numeric("lockdown_humidity", { precision: 5, scale: 2 }),
   notes: text("notes"),
+  incubatorId: integer("incubator_id"),
   isActive: boolean("is_active").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

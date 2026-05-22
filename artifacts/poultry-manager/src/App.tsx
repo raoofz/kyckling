@@ -29,6 +29,9 @@ const FeedIntelligence  = lazy(() => import("@/pages/feed-intelligence"));
 const DailyPlan         = lazy(() => import("@/pages/daily-plan"));
 const SettingsPage      = lazy(() => import("@/pages/settings"));
 const OfflinePage       = lazy(() => import("@/pages/offline"));
+const Incubators        = lazy(() => import("@/pages/incubators"));
+const SalesPage         = lazy(() => import("@/pages/sales"));
+const FarmAnalyticsPage = lazy(() => import("@/pages/farm-analytics"));
 const NotFound          = lazy(() => import("@/pages/not-found"));
 
 // ── Query Client ──────────────────────────────────────────────────────────────
@@ -106,6 +109,8 @@ function AppRoutes() {
           <Route path="/tasks"       component={Tasks} />
           <Route path="/operations"  component={Operations} />
           <Route path="/feed"        component={FeedIntelligence} />
+          <Route path="/incubators"  component={Incubators} />
+          <Route path="/sales"       component={SalesPage} />
           <Route path="/offline"     component={OfflinePage} />
 
           {/* ── Admin only ── */}
@@ -114,6 +119,9 @@ function AppRoutes() {
           </Route>
           <Route path="/analytics">
             {() => <ProtectedRoute component={Analytics} adminOnly />}
+          </Route>
+          <Route path="/farm-analytics">
+            {() => <ProtectedRoute component={FarmAnalyticsPage} adminOnly />}
           </Route>
           <Route path="/workspace">
             {() => <ProtectedRoute component={Workspace} adminOnly />}

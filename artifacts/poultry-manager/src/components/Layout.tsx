@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Bird, Egg, CheckSquare, Target, BookOpen,
   Menu, X, LogOut, User, ShieldCheck, Shield, MessageCircle, Settings,
   Languages, BrainCircuit, FileText, FlaskConical, NotebookPen, Wallet, Calculator,
-  Activity, Database, Layers, Wheat, Bell,
+  Activity, Database, Layers, Wheat, Bell, Box, ShoppingCart, BarChart3,
 } from "lucide-react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
@@ -31,12 +31,15 @@ const NAV_KEYS: NavItem[] = [
   { href: "/operations",  key: "nav.operations",   descKey: "nav.operations.desc",  icon: Layers,          adminOnly: false },
   { href: "/tasks",       key: "nav.tasks",        descKey: "nav.tasks.desc",       icon: CheckSquare,     adminOnly: false },
   { href: "/feed",        key: "nav.feed",         descKey: "nav.feed.desc",        icon: Wheat,           adminOnly: false },
+  { href: "/incubators", key: "nav.incubators",   descKey: "nav.incubators.desc",  icon: Box,             adminOnly: false },
+  { href: "/sales",      key: "nav.sales",        descKey: "nav.sales.desc",       icon: ShoppingCart,    adminOnly: false },
   // ── Admin only ──
   { href: "/finance",     key: "nav.finance",      descKey: "nav.finance.desc",     icon: Wallet,          adminOnly: true  },
   { href: "/accounting",  key: "nav.accounting",   descKey: "nav.accounting.desc",  icon: Calculator,      adminOnly: true  },
   { href: "/workspace",   key: "nav.workspace",    descKey: "nav.workspace.desc",   icon: NotebookPen,     adminOnly: true  },
   { href: "/daily-plan",  key: "nav.dailyPlan",    descKey: "nav.dailyPlan.desc",   icon: Bell,            adminOnly: true  },
   { href: "/analytics",   key: "nav.analytics",    descKey: "nav.analytics.desc",   icon: Activity,        adminOnly: true  },
+  { href: "/farm-analytics", key: "farmAnalytics.title", descKey: "farmAnalytics.subtitle", icon: BarChart3,   adminOnly: true  },
   { href: "/brain",       key: "nav.brain",        descKey: "nav.brain.desc",       icon: Database,        adminOnly: true  },
   { href: "/ai",          key: "nav.ai",           descKey: "nav.ai.desc",          icon: FileText,        adminOnly: true  },
   { href: "/ai/advanced", key: "nav.aiAdvanced",   descKey: "nav.aiAdvanced.desc",  icon: FlaskConical,    adminOnly: true  },
