@@ -1,15 +1,5 @@
 {
   "version": 2,
   "installCommand": "pnpm install --no-frozen-lockfile",
-  "buildCommand": "pnpm --filter @workspace/poultry-manager run build && pnpm --filter @workspace/api-server run build:vercel",
-  "outputDirectory": "artifacts/poultry-manager/dist/public",
-  "framework": null,
-  "functions": {
-    "api/handler.js": {
-      "maxDuration": 30
-    }
-  },
-  "rewrites": [
-    { "source": "/api/:path*", "destination": "/api/handler" }
-  ]
+  "buildCommand": "node build-for-vercel.mjs"
 }
