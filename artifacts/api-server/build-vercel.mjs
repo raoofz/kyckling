@@ -11,14 +11,18 @@ const artifactDir = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(artifactDir, "../..");
 
 async function buildVercel() {
-  const outFile = path.resolve(rootDir, "api/index.mjs");
+  const outDir = path.resolve(rootDir, "api");
+
+  await rm(outDir, { recursive: true, force: true });
 
   await esbuild({
     entryPoints: [path.resolve(artifactDir, "src/vercel.ts")],
     platform: "node",
     bundle: true,
     format: "esm",
-    outfile: outFile,
+    outdir: outDir,
+    entryNames: "index",
+    outExtension: { ".js": ".mjs" },
     logLevel: "info",
     external: [
       "*.node",
