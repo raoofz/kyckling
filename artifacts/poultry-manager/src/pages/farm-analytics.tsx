@@ -203,7 +203,7 @@ export default function FarmAnalyticsPage() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
               <FinancialStat label={ar ? "شراء بيض مخصب" : "Inköp av ägg"} value={f.totalEggCost} color="bg-red-50 text-red-700" icon={Egg} />
               <FinancialStat label={ar ? "مصاريف أخرى" : "Övriga kostnader"} value={Math.max(0, f.totalExpenses - f.totalEggCost)} color="bg-orange-50 text-orange-700" icon={Receipt} />
-              <FinancialStat label={ar ? "إجمالي التكاليف" : "Totala kostnader"} value={f.totalEggCost} color="bg-red-50 text-red-700" icon={Calculator} />
+              <FinancialStat label={ar ? "إجمالي التكاليف" : "Totala kostnader"} value={f.totalEggCost + f.totalExpenses} color="bg-red-50 text-red-700" icon={Calculator} />
               <FinancialStat
                 label={ar ? "صافي الربح النهائي" : "Slutlig nettovinst"}
                 value={f.netProfit}

@@ -39,7 +39,7 @@ router.get("/farm-analytics/overview", async (_req, res) => {
     );
     const avgHatchRate =
       completedCycles.reduce(
-        (sum: number, c: HatchingCycle) => sum + (c.eggsHatched! / c.eggsSet) * 100,
+        (sum: number, c: HatchingCycle) => sum + (c.eggsSet > 0 ? (c.eggsHatched! / c.eggsSet) * 100 : 0),
         0,
       ) / (completedCycles.length || 1);
     const totalEggsUsed = completedCycles.reduce((s: number, c: HatchingCycle) => s + c.eggsSet, 0);
@@ -61,7 +61,7 @@ router.get("/farm-analytics/overview", async (_req, res) => {
           name: c.batchName,
           eggsSet: c.eggsSet,
           eggsHatched: c.eggsHatched,
-          hatchRate: c.eggsHatched ? Math.round((c.eggsHatched / c.eggsSet) * 100) : null,
+          hatchRate: c.eggsHatched && c.eggsSet > 0 ? Math.round((c.eggsHatched / c.eggsSet) * 100) : null,
           status: c.status,
           startDate: c.startDate,
           machine: inc?.name || "—",
@@ -90,7 +90,7 @@ router.get("/farm-analytics/overview", async (_req, res) => {
     // Sales by type
     const salesByType: Record<string, { count: number; revenue: number }> = {};
     sales.forEach((s: Sale) => {
-      const t = s.saleType || "chick";
+      const t = s.itemType || "chick";
       if (!salesByType[t]) salesByType[t] = { count: 0, revenue: 0 };
       salesByType[t].count += s.quantity;
       salesByType[t].revenue += Number(s.totalPrice);
