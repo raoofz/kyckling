@@ -918,11 +918,13 @@ export default function Hatching() {
     completed: "bg-emerald-100 text-emerald-700", failed: "bg-red-100 text-red-700",
   };
 
-  const activeCycles = useMemo(() => cycles?.filter((c: any) => c.status === "incubating" || c.status === "hatching") || [], [cycles]);
-  const completedCycles = useMemo(() => cycles?.filter((c: any) => c.status === "completed" || c.status === "failed") || [], [cycles]);
+  const sortById = (a: any, b: any) => a.id - b.id;
+
+  const activeCycles = useMemo(() => (cycles?.filter((c: any) => c.status === "incubating" || c.status === "hatching") || []).sort(sortById), [cycles]);
+  const allCyclesSorted = useMemo(() => (cycles || []).slice().sort(sortById), [cycles]);
 
   const filteredActive = filterMachine === "all" ? activeCycles : activeCycles.filter((c: any) => String(c.incubatorId) === filterMachine);
-  const filteredCompleted = filterMachine === "all" ? completedCycles : completedCycles.filter((c: any) => String(c.incubatorId) === filterMachine);
+  const filteredAll = filterMachine === "all" ? allCyclesSorted : allCyclesSorted.filter((c: any) => String(c.incubatorId) === filterMachine);
 
   const refresh = () => qc.invalidateQueries({ queryKey: getListHatchingCyclesQueryKey() });
 
@@ -1040,14 +1042,12 @@ export default function Hatching() {
         </div>
       </div>
 
-      {!isLoading && cycles && cycles.length > 0 && <HatchingAnalysis cycles={cycles} />}
-
-      {/* Active cycles */}
+      {/* Active cycles - top section */}
       {filteredActive.length > 0 && (
         <div className="space-y-3">
           <h2 className="text-sm font-bold text-primary flex items-center gap-1.5">
             <Activity className="w-4 h-4" />
-            {ar ? `فقسات نشطة (${filteredActive.length})` : `Aktiva cykler (${filteredActive.length})`}
+            {ar ? `فقسات شغالة الآن (${filteredActive.length})` : `Pågående cykler (${filteredActive.length})`}
           </h2>
           {filteredActive.map((cycle: any) => (
             <CycleCard key={cycle.id} cycle={cycle} machine={incubatorMap.get(cycle.incubatorId)} ar={ar} t={t} STATUS_LABELS={STATUS_LABELS} STATUS_COLORS={STATUS_COLORS} isAdmin={isAdmin} onEdit={() => setEditItem(cycle)} onDelete={() => setDeleteId(cycle.id)} />
@@ -1055,14 +1055,16 @@ export default function Hatching() {
         </div>
       )}
 
-      {/* Completed cycles */}
-      {filteredCompleted.length > 0 && (
+      {!isLoading && cycles && cycles.length > 0 && <HatchingAnalysis cycles={cycles} />}
+
+      {/* All batches sorted 1→N */}
+      {filteredAll.length > 0 && (
         <div className="space-y-3">
           <h2 className="text-sm font-bold text-muted-foreground flex items-center gap-1.5">
-            <CheckCircle2 className="w-4 h-4" />
-            {ar ? `فقسات مكتملة (${filteredCompleted.length})` : `Slutförda cykler (${filteredCompleted.length})`}
+            <Egg className="w-4 h-4" />
+            {ar ? `جميع الفقسات بالترتيب (${filteredAll.length})` : `Alla cykler i ordning (${filteredAll.length})`}
           </h2>
-          {filteredCompleted.map((cycle: any) => (
+          {filteredAll.map((cycle: any) => (
             <CycleCard key={cycle.id} cycle={cycle} machine={incubatorMap.get(cycle.incubatorId)} ar={ar} t={t} STATUS_LABELS={STATUS_LABELS} STATUS_COLORS={STATUS_COLORS} isAdmin={isAdmin} onEdit={() => setEditItem(cycle)} onDelete={() => setDeleteId(cycle.id)} />
           ))}
         </div>
