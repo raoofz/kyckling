@@ -13,10 +13,10 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
 import {
-  Bird, Plus, Pencil, Trash2, Heart, Egg, AlertTriangle, TrendingUp,
-  TrendingDown, Minus, ChevronRight, Activity, Flame, Search, Filter,
-  X, CheckCircle2, Clock, Star, BarChart3, Droplets, SlidersHorizontal,
-  Calendar, ArrowUpDown, Stethoscope, Wheat, DollarSign, Scale,
+  Bird, Plus, Pencil, Trash2, Heart, Egg, AlertTriangle,
+  ChevronRight, Activity, Search, Filter,
+  X, CheckCircle2, Calendar, ArrowUpDown, Stethoscope, Wheat,
+  ShoppingCart, Box, TrendingUp, Clock, Users, Package,
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell,
@@ -63,61 +63,42 @@ interface HealthLog {
   createdAt: string;
 }
 
-interface Analytics {
-  flockCount: number;
-  totalBirds: number;
-  healthyCount: number;
-  sickCount: number;
-  totalEggs7d: number;
-  avgDailyAllFlocks: number;
-  topProducerName: string | null;
-  topProducerAvgDaily: number;
+interface HatchingCycle {
+  id: number;
+  batchName: string;
+  status: string;
+  eggsSet: number;
+  eggsHatched: number | null;
+  startDate: string | null;
+  setTime: string | null;
+  incubatorId: number | null;
+  notes: string | null;
 }
 
-// Feed intelligence types (mirrored from engine)
-interface FlockFeedAnalysis {
-  flockId: number;
-  flockName: string;
-  breed: string;
-  count: number;
+interface Sale {
+  id: number;
+  hatchingCycleId: number | null;
+  quantity: number;
+  totalPrice: string;
+  date: string;
+}
+
+interface Incubator {
+  id: number;
+  name: string;
+  capacity: number;
+}
+
+interface BatchChickenInfo {
+  cycle: HatchingCycle;
+  machineName: string;
+  totalHatched: number;
+  totalSold: number;
+  remaining: number;
+  salesRevenue: number;
   ageDays: number;
-  ageWeeks: number;
-  growthStage: string;
-  purpose: string;
-  feedData: {
-    totalCostAllocated: number;
-    totalKgAllocated: number | null;
-    costPerBird: number;
-    dailyCostPerBird: number;
-    dailyFeedKgPerBird: number | null;
-  };
-  benchmark: {
-    expectedDailyFeedGrams: number;
-    expectedFCR: number;
-    actualFCR: number | null;
-    fcrRating: { efficiency: string; deviation: number; label: string } | null;
-    expectedProductionPct: number;
-    actualProductionPct: number;
-    productionRating: { rating: string; gap: number };
-  };
-  costPerEgg: number | null;
-  costPerDozen: number | null;
-  efficiencyScore: number;
-  insights: Array<{
-    severity: string;
-    observation: string;
-    why: string;
-    action: string;
-    evidence: string;
-    expectedOutcome: string;
-  }>;
-}
-
-interface FeedSummaryResponse {
-  flockAnalyses: FlockFeedAnalysis[];
-  farmEfficiencyScore: number;
-  totalFeedSpend: number;
-  feedCostPctOfExpenses: number;
+  isActive: boolean;
+  flocks: Flock[];
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -141,398 +122,226 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 function calcAgeDays(birthDate: string | null, ageDays: number) {
   if (!birthDate) return ageDays;
   const start = new Date(birthDate);
-  const now   = new Date();
+  const now = new Date();
   start.setHours(0, 0, 0, 0);
   now.setHours(0, 0, 0, 0);
   return Math.max(0, Math.floor((now.getTime() - start.getTime()) / 86_400_000));
 }
 
 function ageLabel(days: number, ar: boolean) {
-  if (days < 30)  return ar ? `${days} يوم` : `${days} dagar`;
+  if (days < 30) return ar ? `${days} يوم` : `${days} dagar`;
   if (days < 365) return ar ? `${Math.round(days / 30)} شهر` : `${Math.round(days / 30)} mån`;
   return ar ? `${(days / 365).toFixed(1)} سنة` : `${(days / 365).toFixed(1)} år`;
 }
 
-// ── Health meta ───────────────────────────────────────────────────────────────
+function cycleDays(startDate: string | null): number {
+  if (!startDate) return 0;
+  const start = new Date(startDate);
+  const now = new Date();
+  return Math.max(0, Math.floor((now.getTime() - start.getTime()) / 86_400_000));
+}
+
+const fmt = (n: number) => n.toLocaleString("ar-IQ");
+
+// ── Health / Purpose meta ─────────────────────────────────────────────────────
 
 const HEALTH_META: Record<string, { labelAr: string; labelSv: string; color: string; bg: string; border: string; icon: typeof CheckCircle2 }> = {
-  healthy:    { labelAr: "بصحة جيدة",   labelSv: "Frisk",        color: "#10b981", bg: "bg-emerald-50 dark:bg-emerald-950/30", border: "border-emerald-200 dark:border-emerald-800", icon: CheckCircle2 },
-  sick:       { labelAr: "مريضة",        labelSv: "Sjuk",         color: "#ef4444", bg: "bg-red-50 dark:bg-red-950/30",         border: "border-red-200 dark:border-red-800",         icon: AlertTriangle },
-  recovering: { labelAr: "في التعافي",   labelSv: "Återhämtning", color: "#f59e0b", bg: "bg-amber-50 dark:bg-amber-950/30",     border: "border-amber-200 dark:border-amber-800",     icon: Activity },
-  quarantine: { labelAr: "حجر صحي",      labelSv: "Karantän",     color: "#8b5cf6", bg: "bg-violet-50 dark:bg-violet-950/30",   border: "border-violet-200 dark:border-violet-800",   icon: AlertTriangle },
-  treated:    { labelAr: "تمت المعالجة", labelSv: "Behandlad",    color: "#3b82f6", bg: "bg-blue-50 dark:bg-blue-950/30",       border: "border-blue-200 dark:border-blue-800",       icon: CheckCircle2 },
+  healthy: { labelAr: "بصحة جيدة", labelSv: "Frisk", color: "#10b981", bg: "bg-emerald-50 dark:bg-emerald-950/30", border: "border-emerald-200 dark:border-emerald-800", icon: CheckCircle2 },
+  sick: { labelAr: "مريضة", labelSv: "Sjuk", color: "#ef4444", bg: "bg-red-50 dark:bg-red-950/30", border: "border-red-200 dark:border-red-800", icon: AlertTriangle },
+  recovering: { labelAr: "في التعافي", labelSv: "Återhämtning", color: "#f59e0b", bg: "bg-amber-50 dark:bg-amber-950/30", border: "border-amber-200 dark:border-amber-800", icon: Activity },
+  quarantine: { labelAr: "حجر صحي", labelSv: "Karantän", color: "#8b5cf6", bg: "bg-violet-50 dark:bg-violet-950/30", border: "border-violet-200 dark:border-violet-800", icon: AlertTriangle },
+  treated: { labelAr: "تمت المعالجة", labelSv: "Behandlad", color: "#3b82f6", bg: "bg-blue-50 dark:bg-blue-950/30", border: "border-blue-200 dark:border-blue-800", icon: CheckCircle2 },
 };
 const getHealth = (s: string) => HEALTH_META[s] ?? HEALTH_META.healthy;
 
-// ── Purpose meta ──────────────────────────────────────────────────────────────
-
 const PURPOSE_META: Record<string, { labelAr: string; labelSv: string; emoji: string; color: string }> = {
-  eggs:     { labelAr: "بياض", labelSv: "Ägg",        emoji: "🥚", color: "text-amber-700 bg-amber-100 dark:bg-amber-900/30 dark:text-amber-400 border-amber-200 dark:border-amber-800" },
-  meat:     { labelAr: "لحم",  labelSv: "Kött",       emoji: "🍗", color: "text-red-700 bg-red-100 dark:bg-red-900/30 dark:text-red-400 border-red-200 dark:border-red-800" },
+  eggs: { labelAr: "بياض", labelSv: "Ägg", emoji: "🥚", color: "text-amber-700 bg-amber-100 dark:bg-amber-900/30 dark:text-amber-400 border-amber-200 dark:border-amber-800" },
+  meat: { labelAr: "لحم", labelSv: "Kött", emoji: "🍗", color: "text-red-700 bg-red-100 dark:bg-red-900/30 dark:text-red-400 border-red-200 dark:border-red-800" },
   hatching: { labelAr: "تفقيس", labelSv: "Kläckning", emoji: "🐣", color: "text-emerald-700 bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800" },
-  mixed:    { labelAr: "مختلط", labelSv: "Blandat",   emoji: "🔄", color: "text-blue-700 bg-blue-100 dark:bg-blue-900/30 dark:text-blue-400 border-blue-200 dark:border-blue-800" },
+  mixed: { labelAr: "مختلط", labelSv: "Blandat", emoji: "🔄", color: "text-blue-700 bg-blue-100 dark:bg-blue-900/30 dark:text-blue-400 border-blue-200 dark:border-blue-800" },
 };
 const getPurpose = (p: string) => PURPOSE_META[p] ?? PURPOSE_META.mixed;
 
-// ══ ACTIVE HATCHING CYCLES (read-only summary) ═══════════════════════════════
-// Shows all non-terminal hatching cycles with: status, eggs set, eggs hatched,
-// and progress %. Reuses /api/hatching-cycles — no direct DB coupling.
+// ══ BATCH CARD ═══════════════════════════════════════════════════════════════
 
-interface HatchingCycleSummary {
-  id: number;
-  batchName: string;
-  status: string;       // incubating | hatching | completed | failed
-  eggsSet: number;
-  eggsHatched: number | null;
-  startDate: string | null;
-  setTime: string | null;
-}
+function BatchCard({ batch, ar, onViewFlocks }: {
+  batch: BatchChickenInfo; ar: boolean; onViewFlocks: (b: BatchChickenInfo) => void;
+}) {
+  const isCompleted = batch.cycle.status === "completed";
+  const isFailed = batch.cycle.status === "failed";
+  const isIncubating = batch.cycle.status === "incubating" || batch.cycle.status === "hatching";
+  const hatchRate = batch.cycle.eggsSet > 0 && batch.totalHatched > 0
+    ? Math.round((batch.totalHatched / batch.cycle.eggsSet) * 100) : 0;
 
-const HATCH_STATUS_META: Record<string, { ar: string; sv: string; color: string; bg: string; border: string; dot: string }> = {
-  incubating: { ar: "حضانة",       sv: "Inkuberar",   color: "text-blue-700 dark:text-blue-300",       bg: "bg-blue-50 dark:bg-blue-950/30",       border: "border-blue-200 dark:border-blue-800",       dot: "bg-blue-500" },
-  hatching:   { ar: "فقس نشط",     sv: "Kläcker",     color: "text-amber-700 dark:text-amber-300",     bg: "bg-amber-50 dark:bg-amber-950/30",     border: "border-amber-200 dark:border-amber-800",     dot: "bg-amber-500 animate-pulse" },
-  completed:  { ar: "مكتمل",       sv: "Avslutad",    color: "text-emerald-700 dark:text-emerald-300", bg: "bg-emerald-50 dark:bg-emerald-950/30", border: "border-emerald-200 dark:border-emerald-800", dot: "bg-emerald-500" },
-  failed:     { ar: "فشل",         sv: "Misslyckad",  color: "text-red-700 dark:text-red-300",         bg: "bg-red-50 dark:bg-red-950/30",         border: "border-red-200 dark:border-red-800",         dot: "bg-red-500" },
-};
-
-function ActiveHatchingCycles() {
-  const { lang } = useLanguage();
-  const ar = lang === "ar";
-  const [cycles, setCycles] = useState<HatchingCycleSummary[] | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    apiFetch<HatchingCycleSummary[]>("hatching-cycles")
-      .then(data => { if (!cancelled) setCycles(data); })
-      .catch(() => { if (!cancelled) setCycles([]); });
-    return () => { cancelled = true; };
-  }, []);
-
-  // Show all non-terminal first, completed last; hide failed entirely
-  const visible = useMemo(() => {
-    if (!cycles) return null;
-    const order = { incubating: 0, hatching: 1, completed: 2 } as Record<string, number>;
-    return cycles
-      .filter(c => c.status !== "failed")
-      .sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9));
-  }, [cycles]);
-
-  if (visible === null) {
-    return (
-      <Card className="border-border/50">
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Egg className="w-4 h-4 text-amber-500" />
-            {ar ? "دورات التفقيس النشطة" : "Aktiva kläckningscykler"}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          <Skeleton className="h-16 w-full" />
-          <Skeleton className="h-16 w-full" />
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (visible.length === 0) {
-    return (
-      <Card className="border-dashed border-border/60">
-        <CardContent className="py-6 flex items-center justify-center gap-2 text-muted-foreground text-sm">
-          <Egg className="w-4 h-4 opacity-50" />
-          {ar ? "لا توجد دورة تفقيس نشطة حالياً" : "Inga aktiva kläckningscykler"}
-        </CardContent>
-      </Card>
-    );
-  }
+  const statusConfig = isIncubating
+    ? { label: ar ? "قيد التفقيس" : "Inkuberar", color: "text-blue-600", bg: "bg-blue-100", border: "border-blue-300", dot: "bg-blue-500 animate-pulse" }
+    : isCompleted
+      ? batch.remaining > 0
+        ? { label: ar ? "دجاج موجود" : "Kycklingar kvar", color: "text-emerald-600", bg: "bg-emerald-100", border: "border-emerald-300", dot: "bg-emerald-500" }
+        : { label: ar ? "تم البيع بالكامل" : "Alla sålda", color: "text-gray-500", bg: "bg-gray-100", border: "border-gray-300", dot: "bg-gray-400" }
+      : { label: ar ? "فشلت" : "Misslyckad", color: "text-red-500", bg: "bg-red-100", border: "border-red-300", dot: "bg-red-500" };
 
   return (
-    <Card className="border-border/50">
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between gap-2">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Egg className="w-4 h-4 text-amber-500" />
-            {ar ? "دورات التفقيس النشطة" : "Aktiva kläckningscykler"}
-          </CardTitle>
-          <span className="text-xs text-muted-foreground">{visible.length} {ar ? "دورة" : "cykler"}</span>
+    <Card className={`overflow-hidden transition-all duration-300 hover:shadow-lg ${batch.remaining > 0 ? "border-emerald-200 dark:border-emerald-800" : "border-border/50"}`}>
+      {/* Color strip */}
+      <div className={`h-1.5 ${batch.remaining > 0 ? "bg-gradient-to-r from-emerald-400 to-teal-500" : isIncubating ? "bg-gradient-to-r from-blue-400 to-indigo-500" : "bg-gray-300"}`} />
+
+      <CardContent className="p-4 space-y-3">
+        {/* Row 1: batch name + status */}
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h3 className="font-bold text-foreground text-sm leading-snug truncate">
+              {batch.cycle.batchName || (ar ? `الفقسة #${batch.cycle.id}` : `Sats #${batch.cycle.id}`)}
+            </h3>
+            <p className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1">
+              <Box className="w-3 h-3" />
+              {batch.machineName}
+            </p>
+          </div>
+          <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold shrink-0 ${statusConfig.color} ${statusConfig.bg} border ${statusConfig.border}`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${statusConfig.dot}`} />
+            {statusConfig.label}
+          </div>
         </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {visible.map(c => {
-          const meta = HATCH_STATUS_META[c.status] ?? HATCH_STATUS_META.incubating;
-          const hatched = c.eggsHatched ?? 0;
 
-          // Progress: completed → hatched/set; otherwise → days elapsed / 21
-          let progress = 0;
-          let progressLabel = "";
-          if (c.status === "completed") {
-            progress = c.eggsSet > 0 ? Math.round((hatched / c.eggsSet) * 100) : 0;
-            progressLabel = ar ? `${hatched}/${c.eggsSet} بيضة فقست` : `${hatched}/${c.eggsSet} ägg kläckta`;
-          } else if (c.startDate) {
-            const start = new Date(`${c.startDate}T${c.setTime ?? "00:00"}:00`).getTime();
-            const days = Math.max(0, (Date.now() - start) / 86_400_000);
-            progress = Math.min(Math.round((days / 21) * 100), 100);
-            progressLabel = ar ? `اليوم ${Math.floor(days) + 1} من 21` : `Dag ${Math.floor(days) + 1} av 21`;
-          }
-
-          const barColor =
-            c.status === "completed" ? "bg-emerald-500"
-              : c.status === "hatching" ? "bg-amber-500"
-                : "bg-blue-500";
-
-          return (
-            <div key={c.id} className={`rounded-xl border ${meta.border} ${meta.bg} p-3 sm:p-4`}>
-              {/* Row 1: Name + status badge */}
-              <div className="flex items-start justify-between gap-3 mb-3">
-                <div className="min-w-0">
-                  <p className="font-semibold text-foreground text-sm truncate">
-                    {c.batchName || (ar ? `دورة #${c.id}` : `Cykel #${c.id}`)}
-                  </p>
-                </div>
-                <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold shrink-0 ${meta.color} bg-background/60 border ${meta.border}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
-                  {ar ? meta.ar : meta.sv}
-                </div>
-              </div>
-
-              {/* Row 2: Egg counts */}
-              <div className="grid grid-cols-2 gap-2 mb-3">
-                <div className="rounded-lg bg-background/60 border border-border/40 px-3 py-2">
-                  <p className="text-[10px] text-muted-foreground font-medium">
-                    {ar ? "بيض موضوع" : "Ägg insatta"}
-                  </p>
-                  <p className="text-lg font-bold text-foreground leading-none mt-1">{c.eggsSet}</p>
-                </div>
-                <div className="rounded-lg bg-background/60 border border-border/40 px-3 py-2">
-                  <p className="text-[10px] text-muted-foreground font-medium">
-                    {ar ? "بيض فقس" : "Ägg kläckta"}
-                  </p>
-                  <p className="text-lg font-bold text-foreground leading-none mt-1">
-                    {c.eggsHatched ?? <span className="text-muted-foreground">—</span>}
-                  </p>
-                </div>
-              </div>
-
-              {/* Row 3: Progress bar */}
-              <div>
-                <div className="flex items-center justify-between text-[11px] font-medium mb-1">
-                  <span className="text-muted-foreground">{progressLabel}</span>
-                  <span className={meta.color}>{progress}%</span>
-                </div>
-                <div className="h-1.5 rounded-full bg-background/60 overflow-hidden border border-border/30">
-                  <div
-                    className={`h-full ${barColor} transition-all duration-700`}
-                    style={{ width: `${progress}%` }}
-                  />
-                </div>
-              </div>
+        {/* Row 2: Stats flow */}
+        <div className="grid grid-cols-4 gap-1">
+          <div className="bg-muted/50 rounded-lg py-2 text-center">
+            <div className="text-lg font-black text-foreground leading-none">{fmt(batch.cycle.eggsSet)}</div>
+            <div className="text-[8px] text-muted-foreground mt-1">{ar ? "بيضة" : "Ägg"}</div>
+          </div>
+          <div className="bg-muted/50 rounded-lg py-2 text-center">
+            <div className="text-lg font-black text-amber-600 leading-none">
+              {batch.totalHatched > 0 ? fmt(batch.totalHatched) : "—"}
             </div>
-          );
-        })}
+            <div className="text-[8px] text-muted-foreground mt-1">{ar ? "فقست" : "Kläckta"}</div>
+          </div>
+          <div className="bg-muted/50 rounded-lg py-2 text-center">
+            <div className="text-lg font-black text-blue-600 leading-none">{fmt(batch.totalSold)}</div>
+            <div className="text-[8px] text-muted-foreground mt-1">{ar ? "بيعت" : "Sålda"}</div>
+          </div>
+          <div className={`rounded-lg py-2 text-center ${batch.remaining > 0 ? "bg-emerald-100 dark:bg-emerald-900/30" : "bg-muted/50"}`}>
+            <div className={`text-lg font-black leading-none ${batch.remaining > 0 ? "text-emerald-600" : "text-muted-foreground"}`}>
+              {fmt(batch.remaining)}
+            </div>
+            <div className="text-[8px] text-muted-foreground mt-1">{ar ? "متبقية" : "Kvar"}</div>
+          </div>
+        </div>
+
+        {/* Row 3: Visual flow arrow */}
+        {isCompleted && batch.totalHatched > 0 && (
+          <div className="relative">
+            <div className="h-3 rounded-full bg-muted/40 overflow-hidden flex">
+              {batch.totalSold > 0 && (
+                <div
+                  className="h-full bg-blue-400"
+                  style={{ width: `${(batch.totalSold / batch.totalHatched) * 100}%` }}
+                  title={ar ? `${fmt(batch.totalSold)} مباعة` : `${fmt(batch.totalSold)} sålda`}
+                />
+              )}
+              {batch.remaining > 0 && (
+                <div
+                  className="h-full bg-emerald-500"
+                  style={{ width: `${(batch.remaining / batch.totalHatched) * 100}%` }}
+                  title={ar ? `${fmt(batch.remaining)} متبقية` : `${fmt(batch.remaining)} kvar`}
+                />
+              )}
+            </div>
+            <div className="flex justify-between text-[9px] text-muted-foreground mt-1">
+              <span className="flex items-center gap-0.5">
+                <span className="w-2 h-2 rounded-full bg-blue-400 inline-block" />
+                {ar ? "مباع" : "Sålt"} {Math.round((batch.totalSold / batch.totalHatched) * 100)}%
+              </span>
+              {batch.remaining > 0 && (
+                <span className="flex items-center gap-0.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+                  {ar ? "موجود" : "Kvar"} {Math.round((batch.remaining / batch.totalHatched) * 100)}%
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Row 4: Info strip */}
+        <div className="flex items-center justify-between text-[10px] text-muted-foreground border-t border-border/30 pt-2">
+          <div className="flex items-center gap-3">
+            {hatchRate > 0 && (
+              <span className="flex items-center gap-1">
+                <TrendingUp className="w-3 h-3 text-amber-500" />
+                {ar ? `نسبة فقس ${hatchRate}%` : `${hatchRate}% kläckgrad`}
+              </span>
+            )}
+            {batch.ageDays > 0 && isCompleted && (
+              <span className="flex items-center gap-1">
+                <Clock className="w-3 h-3" />
+                {ageLabel(batch.ageDays, ar)}
+              </span>
+            )}
+            {batch.salesRevenue > 0 && (
+              <span className="flex items-center gap-1">
+                <ShoppingCart className="w-3 h-3 text-emerald-500" />
+                {fmt(batch.salesRevenue)} {ar ? "د.ع" : "IQD"}
+              </span>
+            )}
+          </div>
+          {batch.remaining > 0 && batch.flocks.length > 0 && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 text-[10px] gap-1 text-emerald-600"
+              onClick={() => onViewFlocks(batch)}
+            >
+              {ar ? "عرض الدجاج" : "Visa"}
+              <ChevronRight className="w-3 h-3" />
+            </Button>
+          )}
+        </div>
+
+        {/* Incubating progress */}
+        {isIncubating && batch.cycle.startDate && (
+          <div className="bg-blue-50 dark:bg-blue-950/30 rounded-lg p-2.5 border border-blue-200 dark:border-blue-800">
+            <div className="flex items-center justify-between text-[11px] mb-1">
+              <span className="text-blue-600 font-semibold flex items-center gap-1">
+                <Egg className="w-3 h-3" />
+                {ar ? "قيد التفقيس" : "Under inkubation"}
+              </span>
+              <span className="text-blue-600 font-bold">
+                {ar ? `اليوم ${cycleDays(batch.cycle.startDate) + 1} من 21` : `Dag ${cycleDays(batch.cycle.startDate) + 1}/21`}
+              </span>
+            </div>
+            <div className="h-2 rounded-full bg-blue-100 dark:bg-blue-900/50 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-blue-400 to-blue-600 transition-all"
+                style={{ width: `${Math.min(100, (cycleDays(batch.cycle.startDate) / 21) * 100)}%` }}
+              />
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
 }
 
-// ══ FORMS ════════════════════════════════════════════════════════════════════
+// ══ FLOCK DETAIL MODAL (simplified) ═══════════════════════════════════════════
 
-function FlockForm({ initial, onSubmit, onClose, loading, isEdit }: {
-  initial?: Flock; onSubmit: (d: any) => void; onClose: () => void; loading?: boolean; isEdit?: boolean;
-}) {
-  const { lang } = useLanguage();
-  const ar = lang === "ar";
-  const [form, setForm] = useState({
-    name:              initial?.name              ?? "",
-    breed:             initial?.breed             ?? "",
-    count:             initial?.count             ?? 1,
-    ageDays:           initial ? calcAgeDays(initial.birthDate, initial.ageDays) : 0,
-    birthDate:         initial?.birthDate         ?? "",
-    purpose:           initial?.purpose           ?? "eggs",
-    healthStatus:      initial?.healthStatus      ?? "healthy",
-    feedConsumptionKg: initial?.feedConsumptionKg ?? "",
-    dailyEggTarget:    initial?.dailyEggTarget     ?? "",
-    notes:             initial?.notes             ?? "",
-  });
-
-  const set = (k: string) => (e: any) => setForm(f => ({ ...f, [k]: e?.target?.value ?? e }));
-
-  return (
-    <form onSubmit={e => { e.preventDefault(); onSubmit({
-      ...form,
-      count: Number(form.count),
-      ageDays: Number(form.ageDays),
-      feedConsumptionKg: form.feedConsumptionKg !== "" ? Number(form.feedConsumptionKg) : null,
-      dailyEggTarget: form.dailyEggTarget !== "" ? Number(form.dailyEggTarget) : null,
-      birthDate: form.birthDate || null,
-    }); }} className="space-y-4">
-      <div className="grid grid-cols-2 gap-3">
-        <div className="col-span-2 space-y-1.5">
-          <Label>{ar ? "اسم المجموعة" : "Flocksnamn"} *</Label>
-          <Input value={form.name} onChange={set("name")} required autoFocus placeholder={ar ? "مثال: دجاج بياض الأمل" : "T.ex. Värphöns Alpha"} />
-        </div>
-        <div className="space-y-1.5">
-          <Label>{ar ? "السلالة" : "Ras"} *</Label>
-          <Input value={form.breed} onChange={set("breed")} required placeholder={ar ? "مثال: لوهمان براون" : "T.ex. Lohmann Brown"} />
-        </div>
-        <div className="space-y-1.5">
-          <Label>{ar ? "عدد الطيور" : "Antal fåglar"} *</Label>
-          <Input type="number" min={1} value={form.count} onChange={set("count")} required />
-        </div>
-        <div className="space-y-1.5">
-          <Label>{ar ? "تاريخ الميلاد" : "Födelsedag"}</Label>
-          <Input type="date" value={form.birthDate} onChange={e => {
-            const val = e.target.value;
-            setForm(f => ({ ...f, birthDate: val, ageDays: val ? calcAgeDays(val, 0) : f.ageDays }));
-          }} />
-        </div>
-        <div className="space-y-1.5">
-          <Label>{ar ? "العمر (أيام)" : "Ålder (dagar)"} *</Label>
-          <Input type="number" min={0} value={form.ageDays} onChange={set("ageDays")} required />
-        </div>
-        <div className="space-y-1.5">
-          <Label>{ar ? "الغرض" : "Syfte"}</Label>
-          <Select value={form.purpose} onValueChange={v => setForm(f => ({ ...f, purpose: v }))}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {Object.entries(PURPOSE_META).map(([k, v]) => (
-                <SelectItem key={k} value={k}>{v.emoji} {ar ? v.labelAr : v.labelSv}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1.5">
-          <Label>{ar ? "الحالة الصحية" : "Hälsostatus"}</Label>
-          <Select value={form.healthStatus} onValueChange={v => setForm(f => ({ ...f, healthStatus: v }))}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {Object.entries(HEALTH_META).map(([k, v]) => (
-                <SelectItem key={k} value={k}>{ar ? v.labelAr : v.labelSv}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-1.5">
-          <Label>{ar ? "استهلاك العلف (كجم/يوم)" : "Foderförbrukning (kg/dag)"}</Label>
-          <Input type="number" step="0.1" min={0} value={form.feedConsumptionKg} onChange={set("feedConsumptionKg")} placeholder="0.0" />
-        </div>
-        <div className="space-y-1.5">
-          <Label>{ar ? "هدف البيض اليومي" : "Dagligt äggmål"}</Label>
-          <Input type="number" min={0} value={form.dailyEggTarget} onChange={set("dailyEggTarget")} placeholder="0" />
-        </div>
-        <div className="col-span-2 space-y-1.5">
-          <Label>{ar ? "ملاحظات" : "Anteckningar"}</Label>
-          <Textarea value={form.notes} onChange={set("notes")} placeholder={ar ? "ملاحظات عن المجموعة..." : "Anteckningar om flocken..."} rows={2} />
-        </div>
-      </div>
-      <div className="flex gap-2 justify-end">
-        <Button type="button" variant="outline" onClick={onClose}>{ar ? "إلغاء" : "Avbryt"}</Button>
-        <Button type="submit" disabled={loading}>{isEdit ? (ar ? "تحديث" : "Uppdatera") : (ar ? "إضافة" : "Lägg till")}</Button>
-      </div>
-    </form>
-  );
-}
-
-function ProductionLogForm({ flockName, onSubmit, onClose, loading }: {
-  flockName: string; onSubmit: (d: any) => void; onClose: () => void; loading?: boolean;
-}) {
-  const { lang } = useLanguage();
-  const ar = lang === "ar";
-  const today = new Date().toISOString().split("T")[0];
-  const [form, setForm] = useState({ date: today, eggCount: "", notes: "" });
-  const set = (k: string) => (e: any) => setForm(f => ({ ...f, [k]: e?.target?.value ?? e }));
-  return (
-    <form onSubmit={e => { e.preventDefault(); onSubmit({ date: form.date, eggCount: Number(form.eggCount), notes: form.notes || null }); }} className="space-y-4">
-      <p className="text-sm text-muted-foreground">{ar ? "تسجيل إنتاج بيض ليوم محدد" : "Registrera äggproduktion för en dag"}: <span className="font-medium text-foreground">{flockName}</span></p>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1.5">
-          <Label>{ar ? "التاريخ" : "Datum"}</Label>
-          <Input type="date" value={form.date} onChange={set("date")} required />
-        </div>
-        <div className="space-y-1.5">
-          <Label>{ar ? "عدد البيض" : "Antal ägg"}</Label>
-          <Input type="number" min={0} value={form.eggCount} onChange={set("eggCount")} required placeholder="0" />
-        </div>
-        <div className="col-span-2 space-y-1.5">
-          <Label>{ar ? "ملاحظة" : "Anteckning"}</Label>
-          <Input value={form.notes} onChange={set("notes")} placeholder={ar ? "اختياري..." : "Valfritt..."} />
-        </div>
-      </div>
-      <div className="flex gap-2 justify-end">
-        <Button type="button" variant="outline" onClick={onClose}>{ar ? "إلغاء" : "Avbryt"}</Button>
-        <Button type="submit" disabled={loading}>{ar ? "تسجيل" : "Spara"}</Button>
-      </div>
-    </form>
-  );
-}
-
-function HealthLogForm({ flockName, onSubmit, onClose, loading }: {
-  flockName: string; onSubmit: (d: any) => void; onClose: () => void; loading?: boolean;
-}) {
-  const { lang } = useLanguage();
-  const ar = lang === "ar";
-  const today = new Date().toISOString().split("T")[0];
-  const [form, setForm] = useState({ date: today, status: "healthy", symptoms: "", treatment: "", notes: "" });
-  const set = (k: string) => (e: any) => setForm(f => ({ ...f, [k]: e?.target?.value ?? e }));
-  return (
-    <form onSubmit={e => { e.preventDefault(); onSubmit({ date: form.date, status: form.status, symptoms: form.symptoms || null, treatment: form.treatment || null, notes: form.notes || null }); }} className="space-y-4">
-      <p className="text-sm text-muted-foreground">{ar ? "تسجيل حالة صحية" : "Registrera hälsohändelse"}: <span className="font-medium text-foreground">{flockName}</span></p>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1.5">
-          <Label>{ar ? "التاريخ" : "Datum"}</Label>
-          <Input type="date" value={form.date} onChange={set("date")} required />
-        </div>
-        <div className="space-y-1.5">
-          <Label>{ar ? "الحالة" : "Status"}</Label>
-          <Select value={form.status} onValueChange={v => setForm(f => ({ ...f, status: v }))}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {Object.entries(HEALTH_META).map(([k, v]) => (
-                <SelectItem key={k} value={k}>{ar ? v.labelAr : v.labelSv}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="col-span-2 space-y-1.5">
-          <Label>{ar ? "الأعراض" : "Symptom"}</Label>
-          <Input value={form.symptoms} onChange={set("symptoms")} placeholder={ar ? "وصف الأعراض..." : "Beskriv symptom..."} />
-        </div>
-        <div className="col-span-2 space-y-1.5">
-          <Label>{ar ? "العلاج" : "Behandling"}</Label>
-          <Input value={form.treatment} onChange={set("treatment")} placeholder={ar ? "الدواء أو الإجراء المتخذ..." : "Medicin eller åtgärd..."} />
-        </div>
-        <div className="col-span-2 space-y-1.5">
-          <Label>{ar ? "ملاحظات إضافية" : "Ytterligare anteckningar"}</Label>
-          <Textarea value={form.notes} onChange={set("notes")} placeholder={ar ? "اختياري..." : "Valfritt..."} rows={2} />
-        </div>
-      </div>
-      <div className="flex gap-2 justify-end">
-        <Button type="button" variant="outline" onClick={onClose}>{ar ? "إلغاء" : "Avbryt"}</Button>
-        <Button type="submit" disabled={loading}>{ar ? "تسجيل" : "Spara"}</Button>
-      </div>
-    </form>
-  );
-}
-
-// ══ DETAIL MODAL ══════════════════════════════════════════════════════════════
-
-function FlockDetailModal({ flock, onClose, onRefresh, isAdmin, feedAnalysis }: {
+function FlockDetailModal({ flock, onClose, onRefresh, isAdmin }: {
   flock: Flock; onClose: () => void; onRefresh: () => void; isAdmin: boolean;
-  feedAnalysis?: FlockFeedAnalysis;
 }) {
   const { lang } = useLanguage();
   const ar = lang === "ar";
   const { toast } = useToast();
-  const [prodLogs, setProdLogs]     = useState<ProductionLog[]>([]);
+  const [prodLogs, setProdLogs] = useState<ProductionLog[]>([]);
   const [healthLogs, setHealthLogs] = useState<HealthLog[]>([]);
-  const [tab, setTab]               = useState<"overview" | "production" | "health" | "feed" | "intelligence">("overview");
+  const [tab, setTab] = useState<"overview" | "production" | "health" | "intelligence">("overview");
   const [loadingLogs, setLoadingLogs] = useState(true);
-  const [addProdOpen, setAddProdOpen]     = useState(false);
+  const [addProdOpen, setAddProdOpen] = useState(false);
   const [addHealthOpen, setAddHealthOpen] = useState(false);
-  const [savingProd, setSavingProd]   = useState(false);
+  const [savingProd, setSavingProd] = useState(false);
   const [savingHealth, setSavingHealth] = useState(false);
 
-  const health  = getHealth(flock.healthStatus);
+  const health = getHealth(flock.healthStatus);
   const purpose = getPurpose(flock.purpose);
-  const age     = calcAgeDays(flock.birthDate, flock.ageDays);
+  const age = calcAgeDays(flock.birthDate, flock.ageDays);
 
   useEffect(() => {
     async function loadLogs() {
@@ -560,7 +369,7 @@ function FlockDetailModal({ flock, onClose, onRefresh, isAdmin, feedAnalysis }: 
       const logs = await apiFetch<ProductionLog[]>(`flocks/${flock.id}/production-logs`);
       setProdLogs(logs.slice(0, 30));
     } catch (err: any) {
-      toast({ title: ar ? "خطأ في الحفظ" : "Fel vid sparning", description: err.message, variant: "destructive" });
+      toast({ title: ar ? "خطأ" : "Fel", description: err.message, variant: "destructive" });
     }
     setSavingProd(false);
   };
@@ -569,18 +378,17 @@ function FlockDetailModal({ flock, onClose, onRefresh, isAdmin, feedAnalysis }: 
     setSavingHealth(true);
     try {
       await apiFetch(`flocks/${flock.id}/health-logs`, { method: "POST", body: JSON.stringify(data) });
-      toast({ title: ar ? "تم تسجيل الحالة الصحية" : "Hälsohändelse registrerad" });
+      toast({ title: ar ? "تم تسجيل الحالة" : "Hälsostatus uppdaterad" });
       setAddHealthOpen(false);
       onRefresh();
       const logs = await apiFetch<HealthLog[]>(`flocks/${flock.id}/health-logs`);
       setHealthLogs(logs.slice(0, 20));
     } catch (err: any) {
-      toast({ title: ar ? "خطأ في الحفظ" : "Fel vid sparning", description: err.message, variant: "destructive" });
+      toast({ title: ar ? "خطأ" : "Fel", description: err.message, variant: "destructive" });
     }
     setSavingHealth(false);
   };
 
-  // Chart data: last 14 days of production
   const chartData = useMemo(() => {
     const sorted = [...prodLogs].sort((a, b) => a.date.localeCompare(b.date)).slice(-14);
     return sorted.map(l => ({
@@ -588,8 +396,6 @@ function FlockDetailModal({ flock, onClose, onRefresh, isAdmin, feedAnalysis }: 
       eggs: l.eggCount,
     }));
   }, [prodLogs, ar]);
-
-  const avgProd = prodLogs.length > 0 ? Math.round(prodLogs.slice(0, 7).reduce((s, l) => s + l.eggCount, 0) / Math.min(7, prodLogs.length)) : 0;
 
   return (
     <>
@@ -605,45 +411,36 @@ function FlockDetailModal({ flock, onClose, onRefresh, isAdmin, feedAnalysis }: 
                 <span className={`text-xs px-2 py-1 rounded-full border font-medium ${purpose.color}`}>
                   {purpose.emoji} {ar ? purpose.labelAr : purpose.labelSv}
                 </span>
-                <span
-                  className="text-xs px-2 py-1 rounded-full border font-medium"
-                  style={{ background: health.color + "18", color: health.color, borderColor: health.color + "44" }}
-                >
+                <span className="text-xs px-2 py-1 rounded-full border font-medium"
+                  style={{ background: health.color + "18", color: health.color, borderColor: health.color + "44" }}>
                   {ar ? health.labelAr : health.labelSv}
                 </span>
               </div>
             </div>
           </DialogHeader>
 
-          {/* Tabs */}
           <div className="flex gap-1 p-1 bg-muted rounded-lg">
             {[
-              { key: "overview",      labelAr: "عامة",       labelSv: "Översikt" },
-              { key: "production",   labelAr: "الإنتاج",   labelSv: "Produktion" },
-              { key: "health",       labelAr: "الصحة",     labelSv: "Hälsa" },
-              { key: "feed",         labelAr: "العلف",      labelSv: "Foder" },
-              { key: "intelligence", labelAr: "🧠 ذكاء",   labelSv: "🧠 AI" },
+              { key: "overview", labelAr: "عامة", labelSv: "Översikt" },
+              { key: "production", labelAr: "الإنتاج", labelSv: "Produktion" },
+              { key: "health", labelAr: "الصحة", labelSv: "Hälsa" },
+              { key: "intelligence", labelAr: "🧠 ذكاء", labelSv: "🧠 AI" },
             ].map(t => (
-              <button
-                key={t.key}
-                onClick={() => setTab(t.key as any)}
-                className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all ${tab === t.key ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground"}`}
-              >
+              <button key={t.key} onClick={() => setTab(t.key as any)}
+                className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-all ${tab === t.key ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
                 {ar ? t.labelAr : t.labelSv}
               </button>
             ))}
           </div>
 
-          {/* Tab content */}
           {tab === "overview" && (
             <div className="space-y-4">
-              {/* Stats grid */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 {[
-                  { icon: Bird,       value: flock.count, labelAr: "طير", labelSv: "fåglar" },
-                  { icon: Calendar,   value: ageLabel(age, ar), labelAr: "العمر", labelSv: "Ålder" },
-                  { icon: Egg,        value: flock.avgDaily7d || "—", labelAr: "بيض/يوم", labelSv: "ägg/dag" },
-                  { icon: Wheat,      value: flock.feedConsumptionKg != null ? `${flock.feedConsumptionKg} كجم` : "—", labelAr: "علف/يوم", labelSv: "foder/dag" },
+                  { icon: Bird, value: flock.count, labelAr: "طير", labelSv: "fåglar" },
+                  { icon: Calendar, value: ageLabel(age, ar), labelAr: "العمر", labelSv: "Ålder" },
+                  { icon: Egg, value: flock.avgDaily7d || "—", labelAr: "بيض/يوم", labelSv: "ägg/dag" },
+                  { icon: Wheat, value: flock.feedConsumptionKg != null ? `${flock.feedConsumptionKg} كجم` : "—", labelAr: "علف/يوم", labelSv: "foder/dag" },
                 ].map((s, i) => (
                   <div key={i} className="bg-muted/50 rounded-xl p-3 text-center">
                     <s.icon className="w-4 h-4 text-muted-foreground mx-auto mb-1" />
@@ -652,35 +449,8 @@ function FlockDetailModal({ flock, onClose, onRefresh, isAdmin, feedAnalysis }: 
                   </div>
                 ))}
               </div>
-
-              {/* Performance vs target */}
-              {flock.dailyEggTarget && flock.dailyEggTarget > 0 && (
-                <div>
-                  <div className="flex justify-between text-xs text-muted-foreground mb-1.5">
-                    <span>{ar ? "الأداء مقابل الهدف" : "Prestanda vs mål"}</span>
-                    <span className="font-medium">{Math.round((flock.avgDaily7d / flock.dailyEggTarget) * 100)}%</span>
-                  </div>
-                  <div className="h-2.5 rounded-full bg-muted overflow-hidden">
-                    <div
-                      className="h-full rounded-full transition-all duration-700"
-                      style={{
-                        width: `${Math.min(100, (flock.avgDaily7d / flock.dailyEggTarget) * 100)}%`,
-                        background: flock.avgDaily7d >= flock.dailyEggTarget * 0.9 ? "#10b981" : flock.avgDaily7d >= flock.dailyEggTarget * 0.7 ? "#f59e0b" : "#ef4444",
-                      }}
-                    />
-                  </div>
-                  <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
-                    <span>0</span>
-                    <span>{ar ? `الهدف: ${flock.dailyEggTarget}` : `Mål: ${flock.dailyEggTarget}`}</span>
-                  </div>
-                </div>
-              )}
-
-              {/* Notes */}
               {flock.notes && (
-                <div className="bg-muted/50 rounded-xl p-3 text-sm text-muted-foreground leading-relaxed">
-                  {flock.notes}
-                </div>
+                <div className="bg-muted/50 rounded-xl p-3 text-sm text-muted-foreground leading-relaxed">{flock.notes}</div>
               )}
             </div>
           )}
@@ -688,10 +458,7 @@ function FlockDetailModal({ flock, onClose, onRefresh, isAdmin, feedAnalysis }: 
           {tab === "production" && (
             <div className="space-y-4">
               <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-semibold">{ar ? "سجل الإنتاج" : "Produktionshistorik"}</p>
-                  <p className="text-xs text-muted-foreground">{ar ? `متوسط: ${avgProd} بيضة/يوم (آخر ٧ أيام)` : `Snitt: ${avgProd} ägg/dag (senaste 7 dagar)`}</p>
-                </div>
+                <p className="font-semibold">{ar ? "سجل الإنتاج" : "Produktionshistorik"}</p>
                 {isAdmin && (
                   <Button size="sm" className="gap-1.5" onClick={() => setAddProdOpen(true)}>
                     <Plus className="w-3.5 h-3.5" />
@@ -699,7 +466,6 @@ function FlockDetailModal({ flock, onClose, onRefresh, isAdmin, feedAnalysis }: 
                   </Button>
                 )}
               </div>
-
               {loadingLogs ? <Skeleton className="h-40 w-full" /> : chartData.length > 0 ? (
                 <div className="h-44 w-full">
                   <ResponsiveContainer width="100%" height="100%">
@@ -707,10 +473,8 @@ function FlockDetailModal({ flock, onClose, onRefresh, isAdmin, feedAnalysis }: 
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                       <XAxis dataKey="date" tick={{ fontSize: 10 }} />
                       <YAxis tick={{ fontSize: 10 }} />
-                      <Tooltip
-                        formatter={(v: number) => [v, ar ? "بيضة" : "ägg"]}
-                        contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }}
-                      />
+                      <Tooltip formatter={(v: number) => [v, ar ? "بيضة" : "ägg"]}
+                        contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }} />
                       <Bar dataKey="eggs" radius={[4, 4, 0, 0]}>
                         {chartData.map((_, i) => <Cell key={i} fill="#f59e0b" />)}
                       </Bar>
@@ -723,16 +487,11 @@ function FlockDetailModal({ flock, onClose, onRefresh, isAdmin, feedAnalysis }: 
                   {ar ? "لا يوجد سجل إنتاج بعد" : "Ingen produktionshistorik ännu"}
                 </div>
               )}
-
-              {/* Log list */}
               <div className="space-y-2 max-h-48 overflow-y-auto">
                 {prodLogs.map(l => (
                   <div key={l.id} className="flex items-center justify-between text-sm py-2 border-b border-border/40 last:border-0">
-                    <div>
-                      <span className="font-medium">{new Date(l.date).toLocaleDateString(ar ? "ar-IQ" : "sv-SE", { weekday: "short", month: "short", day: "numeric" })}</span>
-                      {l.notes && <span className="text-xs text-muted-foreground ms-2">{l.notes}</span>}
-                    </div>
-                    <span className="font-bold text-amber-600">{l.eggCount} {ar ? "🥚" : "ägg"}</span>
+                    <span className="font-medium">{new Date(l.date).toLocaleDateString(ar ? "ar-IQ" : "sv-SE", { weekday: "short", month: "short", day: "numeric" })}</span>
+                    <span className="font-bold text-amber-600">{l.eggCount} 🥚</span>
                   </div>
                 ))}
               </div>
@@ -746,11 +505,10 @@ function FlockDetailModal({ flock, onClose, onRefresh, isAdmin, feedAnalysis }: 
                 {isAdmin && (
                   <Button size="sm" variant="outline" className="gap-1.5" onClick={() => setAddHealthOpen(true)}>
                     <Stethoscope className="w-3.5 h-3.5" />
-                    {ar ? "إضافة حدث" : "Lägg till"}
+                    {ar ? "إضافة" : "Lägg till"}
                   </Button>
                 )}
               </div>
-
               {loadingLogs ? <Skeleton className="h-40 w-full" /> : healthLogs.length === 0 ? (
                 <div className="text-center py-8 text-muted-foreground text-sm">
                   <Heart className="w-8 h-8 mx-auto mb-2 opacity-30" />
@@ -772,9 +530,8 @@ function FlockDetailModal({ flock, onClose, onRefresh, isAdmin, feedAnalysis }: 
                             {new Date(l.date).toLocaleDateString(ar ? "ar-IQ" : "sv-SE", { month: "short", day: "numeric", year: "numeric" })}
                           </span>
                         </div>
-                        {l.symptoms && <p className="text-xs text-muted-foreground mb-1"><span className="font-medium">{ar ? "الأعراض:" : "Symptom:"}</span> {l.symptoms}</p>}
-                        {l.treatment && <p className="text-xs text-muted-foreground mb-1"><span className="font-medium">{ar ? "العلاج:" : "Behandling:"}</span> {l.treatment}</p>}
-                        {l.notes && <p className="text-xs text-muted-foreground">{l.notes}</p>}
+                        {l.symptoms && <p className="text-xs text-muted-foreground"><strong>{ar ? "الأعراض:" : "Symptom:"}</strong> {l.symptoms}</p>}
+                        {l.treatment && <p className="text-xs text-muted-foreground"><strong>{ar ? "العلاج:" : "Behandling:"}</strong> {l.treatment}</p>}
                       </div>
                     );
                   })}
@@ -783,225 +540,12 @@ function FlockDetailModal({ flock, onClose, onRefresh, isAdmin, feedAnalysis }: 
             </div>
           )}
 
-          {/* ── Feed Tab ──────────────────────────────────────────── */}
-          {tab === "feed" && (
-            <div className="space-y-4">
-              {feedAnalysis ? (
-                <>
-                  {/* Score header */}
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-semibold text-sm">{ar ? "حاسبة العلف" : "Foderkalkylator"}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {ar ? "تحليل كفاءة العلف والتكلفة بناءً على سلالة القطيع وعمره" : "Analyserar fodereffektivitet och kostnad baserat på flockens ras och ålder"}
-                      </p>
-                    </div>
-                    <div className="text-center shrink-0">
-                      <div className="text-4xl font-black leading-none"
-                        style={{ color: feedAnalysis.efficiencyScore >= 70 ? "#10b981" : feedAnalysis.efficiencyScore >= 45 ? "#f59e0b" : "#ef4444" }}>
-                        {feedAnalysis.efficiencyScore}
-                      </div>
-                      <div className="text-[10px] text-muted-foreground">/100</div>
-                    </div>
-                  </div>
-
-                  {/* ── Cost per Bird — Prominent Card ─────────────────── */}
-                  <div className="rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 p-4 text-white shadow-lg">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-2">
-                        <DollarSign className="w-4 h-4 text-blue-200" />
-                        <p className="text-xs font-bold text-blue-100">{ar ? "تكلفة العلف / طائر" : "Foderkostnad / fågel"}</p>
-                      </div>
-                      {feedAnalysis.feedData.dailyCostPerBird > 0 && (
-                        <span className="text-[9px] bg-white/20 rounded-full px-2 py-0.5 text-blue-100">
-                          {ar ? "محدّث تلقائياً" : "Automatisk uppdatering"}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex items-end gap-3 mb-3">
-                      <div>
-                        <p className="text-3xl font-black leading-none">
-                          {feedAnalysis.feedData.dailyCostPerBird > 0
-                            ? feedAnalysis.feedData.dailyCostPerBird.toFixed(1)
-                            : "—"}
-                        </p>
-                        <p className="text-[10px] text-blue-200 mt-0.5">{ar ? "دينار / طائر / يوم" : "IQD / fågel / dag"}</p>
-                      </div>
-                      {feedAnalysis.feedData.costPerBird > 0 && (
-                        <div className="border-r border-white/30 pr-3 mr-1">
-                          <p className="text-xl font-black leading-none">{feedAnalysis.feedData.costPerBird.toFixed(0)}</p>
-                          <p className="text-[10px] text-blue-200 mt-0.5">{ar ? "دينار / طائر / شهر" : "IQD / fågel / mån"}</p>
-                        </div>
-                      )}
-                    </div>
-                    {/* Formula */}
-                    <div className="bg-white/10 rounded-lg px-3 py-2">
-                      <p className="text-[9px] text-blue-200 font-mono leading-relaxed">
-                        {ar
-                          ? `(علف يومي × سعر العلف) ÷ عدد الطيور`
-                          : `(dagligt foder × foderpris) ÷ antal fåglar`}
-                      </p>
-                      {feedAnalysis.feedData.totalKgAllocated != null && (
-                        <p className="text-[9px] text-blue-200 mt-1 font-mono">
-                          {ar
-                            ? `= (${feedAnalysis.feedData.totalKgAllocated.toFixed(1)} كجم × تكلفة/كجم) ÷ ${feedAnalysis.count} طائر`
-                            : `= (${feedAnalysis.feedData.totalKgAllocated.toFixed(1)} kg × pris/kg) ÷ ${feedAnalysis.count} fåglar`}
-                        </p>
-                      )}
-                    </div>
-                    {feedAnalysis.feedData.dailyCostPerBird === 0 && (
-                      <p className="text-[10px] text-yellow-300 mt-2">
-                        ⚠️ {ar ? "أضف سجلات علف بسعر لحساب التكلفة" : "Lägg till foderanteckningar med pris för beräkning"}
-                      </p>
-                    )}
-                  </div>
-
-                  {/* 4-metric grid */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-muted/50 rounded-xl p-3">
-                      <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
-                        <Wheat className="w-3 h-3 text-amber-500" />
-                        {ar ? "علف متوقع / طائر / يوم" : "Förväntat foder/fågel/dag"}
-                      </div>
-                      <div className="text-xl font-bold">{feedAnalysis.benchmark.expectedDailyFeedGrams}g</div>
-                      <div className="text-[10px] text-muted-foreground mt-0.5">
-                        {ar
-                          ? `إجمالي القطيع: ${(feedAnalysis.benchmark.expectedDailyFeedGrams * feedAnalysis.count / 1000).toFixed(1)} كجم/يوم`
-                          : `Totalt: ${(feedAnalysis.benchmark.expectedDailyFeedGrams * feedAnalysis.count / 1000).toFixed(1)} kg/dag`}
-                      </div>
-                    </div>
-
-                    <div className="bg-muted/50 rounded-xl p-3">
-                      <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
-                        <DollarSign className="w-3 h-3 text-blue-500" />
-                        {ar ? "تكلفة العلف / طائر / يوم" : "Foderkostnad/fågel/dag"}
-                      </div>
-                      <div className="text-xl font-bold">
-                        {feedAnalysis.feedData.dailyCostPerBird > 0 ? feedAnalysis.feedData.dailyCostPerBird.toFixed(2) : "—"}
-                      </div>
-                      <div className="text-[10px] text-muted-foreground mt-0.5">
-                        {feedAnalysis.feedData.costPerBird > 0
-                          ? (ar ? `إجمالي 30 يوم / طائر: ${feedAnalysis.feedData.costPerBird.toFixed(1)}` : `30-dagars totalt: ${feedAnalysis.feedData.costPerBird.toFixed(1)}`)
-                          : (ar ? "لا تتوفر بيانات تكلفة" : "Ingen kostnadsdata")}
-                      </div>
-                    </div>
-
-                    <div className="bg-muted/50 rounded-xl p-3">
-                      <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
-                        <Scale className="w-3 h-3 text-purple-500" />
-                        {ar ? "FCR المتوقع (معيار السلالة)" : "Förväntat FCR (ras)"}
-                      </div>
-                      <div className="text-xl font-bold font-mono">{feedAnalysis.benchmark.expectedFCR}</div>
-                      <div className={`text-[10px] mt-0.5 font-medium ${feedAnalysis.benchmark.fcrRating?.efficiency === "excellent" ? "text-emerald-600" : feedAnalysis.benchmark.fcrRating?.efficiency === "good" ? "text-blue-600" : "text-muted-foreground"}`}>
-                        {feedAnalysis.benchmark.actualFCR != null
-                          ? (ar ? `فعلي: ${feedAnalysis.benchmark.actualFCR}` : `Faktiskt: ${feedAnalysis.benchmark.actualFCR}`)
-                          : (ar ? "يحتاج بيانات كجم علف" : "Behöver kg-data")}
-                      </div>
-                    </div>
-
-                    {feedAnalysis.purpose !== "meat" && (
-                      <div className="bg-muted/50 rounded-xl p-3">
-                        <div className="flex items-center gap-1 text-xs text-muted-foreground mb-1">
-                          <Egg className="w-3 h-3 text-yellow-500" />
-                          {ar ? "إنتاج متوقع" : "Förväntad produktion"}
-                        </div>
-                        <div className="text-xl font-bold">{feedAnalysis.benchmark.expectedProductionPct.toFixed(1)}%</div>
-                        <div className={`text-[10px] mt-0.5 font-medium ${feedAnalysis.benchmark.actualProductionPct > 0 ? (feedAnalysis.benchmark.productionRating.rating === "on-target" ? "text-emerald-600" : "text-orange-600") : "text-muted-foreground"}`}>
-                          {feedAnalysis.benchmark.actualProductionPct > 0
-                            ? (ar ? `فعلي: ${feedAnalysis.benchmark.actualProductionPct.toFixed(1)}%` : `Faktiskt: ${feedAnalysis.benchmark.actualProductionPct.toFixed(1)}%`)
-                            : (ar ? "لا توجد سجلات إنتاج" : "Inga produktionsloggar")}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Stage + breed info */}
-                  <div className="bg-muted/30 rounded-lg p-3 space-y-1">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-muted-foreground">{ar ? "مرحلة النمو:" : "Tillväxtfas:"}</span>
-                      <span className="font-medium capitalize">{feedAnalysis.growthStage}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-muted-foreground">{ar ? "السلالة:" : "Ras:"}</span>
-                      <span className="font-medium">{feedAnalysis.breed}</span>
-                    </div>
-                    {feedAnalysis.feedData.totalKgAllocated != null && (
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-muted-foreground">{ar ? "علف مسجّل (30 يوم):" : "Registrerat foder (30 dgr):"}</span>
-                        <span className="font-medium font-mono">{feedAnalysis.feedData.totalKgAllocated.toFixed(1)} كجم</span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Cost per output */}
-                  {(feedAnalysis.costPerEgg != null || feedAnalysis.costPerDozen != null) && (
-                    <div className="flex gap-3">
-                      {feedAnalysis.costPerEgg != null && (
-                        <div className="flex-1 bg-yellow-50/50 dark:bg-yellow-900/10 rounded-xl p-3 text-center">
-                          <Egg className="h-4 w-4 mx-auto text-yellow-500 mb-1" />
-                          <div className="text-lg font-bold">{feedAnalysis.costPerEgg.toFixed(2)}</div>
-                          <div className="text-[10px] text-muted-foreground">{ar ? "تكلفة علف / بيضة" : "Foderkostnad/ägg"}</div>
-                        </div>
-                      )}
-                      {feedAnalysis.costPerDozen != null && (
-                        <div className="flex-1 bg-amber-50/50 dark:bg-amber-900/10 rounded-xl p-3 text-center">
-                          <Star className="h-4 w-4 mx-auto text-amber-500 mb-1" />
-                          <div className="text-lg font-bold">{feedAnalysis.costPerDozen.toFixed(2)}</div>
-                          <div className="text-[10px] text-muted-foreground">{ar ? "تكلفة علف / كرتونة" : "Foderkostnad/dussin"}</div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* Insights */}
-                  {feedAnalysis.insights.length > 0 && (
-                    <div className="space-y-2">
-                      <p className="text-xs font-semibold text-muted-foreground">{ar ? "توصيات للقطيع:" : "Rekommendationer för flocken:"}</p>
-                      {feedAnalysis.insights.map((ins, i) => (
-                        <div key={i} className={`rounded-lg border p-2.5 text-xs ${
-                          ins.severity === "critical" ? "bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-400" :
-                          ins.severity === "high" ? "bg-orange-500/10 border-orange-500/30 text-orange-700 dark:text-orange-400" :
-                          ins.severity === "positive" ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-400" :
-                          "bg-yellow-500/10 border-yellow-500/30 text-yellow-700 dark:text-yellow-400"
-                        }`}>
-                          <div className="font-medium mb-1">{ins.observation}</div>
-                          <div className="text-muted-foreground">{ins.action}</div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* No cost data hint */}
-                  {feedAnalysis.feedData.totalCostAllocated === 0 && (
-                    <div className="bg-muted/30 rounded-lg p-3 text-xs text-muted-foreground text-center">
-                      <Wheat className="w-5 h-5 mx-auto mb-1 opacity-40" />
-                      {ar
-                        ? "سجّل مشتريات العلف من صفحة حاسبة العلف لرؤية التكاليف الفعلية"
-                        : "Registrera foderköp i Foderkalkylator för att se faktiska kostnader"}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="text-center py-12 text-muted-foreground">
-                  <Wheat className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                  <p className="text-sm">{ar ? "لا تتوفر بيانات علف لهذا القطيع" : "Ingen foderdata tillgänglig för denna flock"}</p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ── Intelligence Tab ───────────────────────────────────── */}
           {tab === "intelligence" && (
-            <FlockIntelligencePanel
-              flockId={flock.id}
-              flockName={flock.name}
-              ar={ar}
-            />
+            <FlockIntelligencePanel flockId={flock.id} flockName={flock.name} ar={ar} />
           )}
         </DialogContent>
       </Dialog>
 
-      {/* Add production log */}
       <Dialog open={addProdOpen} onOpenChange={setAddProdOpen}>
         <DialogContent className="max-w-sm">
           <DialogHeader><DialogTitle>{ar ? "تسجيل إنتاج البيض" : "Registrera äggproduktion"}</DialogTitle></DialogHeader>
@@ -1009,7 +553,6 @@ function FlockDetailModal({ flock, onClose, onRefresh, isAdmin, feedAnalysis }: 
         </DialogContent>
       </Dialog>
 
-      {/* Add health log */}
       <Dialog open={addHealthOpen} onOpenChange={setAddHealthOpen}>
         <DialogContent className="max-w-sm">
           <DialogHeader><DialogTitle>{ar ? "تسجيل حدث صحي" : "Registrera hälsohändelse"}</DialogTitle></DialogHeader>
@@ -1020,195 +563,155 @@ function FlockDetailModal({ flock, onClose, onRefresh, isAdmin, feedAnalysis }: 
   );
 }
 
-// ══ FEED MINI STRIP ══════════════════════════════════════════════════════════
+// ══ FORMS ════════════════════════════════════════════════════════════════════
 
-function FeedMiniStrip({ fa, ar }: { fa: FlockFeedAnalysis; ar: boolean }) {
-  const score = fa.efficiencyScore;
-  const scoreColor = score >= 70 ? "#10b981" : score >= 45 ? "#f59e0b" : "#ef4444";
-  const statusLabel = ar
-    ? (score >= 70 ? "طبيعي" : score >= 45 ? "يُراقَب" : "حرج")
-    : (score >= 70 ? "Normal" : score >= 45 ? "Bevaka" : "Kritisk");
-  const borderCls = score >= 70
-    ? "border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/20"
-    : score >= 45
-    ? "border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20"
-    : "border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/20";
-
-  const expectedGrams = fa.benchmark.expectedDailyFeedGrams;
-  const totalDailyKg  = (expectedGrams * fa.count / 1000);
+function FlockForm({ initial, onSubmit, onClose, loading, isEdit }: {
+  initial?: Flock; onSubmit: (d: any) => void; onClose: () => void; loading?: boolean; isEdit?: boolean;
+}) {
+  const { lang } = useLanguage();
+  const ar = lang === "ar";
+  const [form, setForm] = useState({
+    name: initial?.name ?? "", breed: initial?.breed ?? "", count: initial?.count ?? 1,
+    ageDays: initial ? calcAgeDays(initial.birthDate, initial.ageDays) : 0,
+    birthDate: initial?.birthDate ?? "", purpose: initial?.purpose ?? "eggs",
+    healthStatus: initial?.healthStatus ?? "healthy",
+    feedConsumptionKg: initial?.feedConsumptionKg ?? "", dailyEggTarget: initial?.dailyEggTarget ?? "",
+    notes: initial?.notes ?? "",
+  });
+  const set = (k: string) => (e: any) => setForm(f => ({ ...f, [k]: e?.target?.value ?? e }));
 
   return (
-    <div className={`rounded-lg border px-2.5 py-2 mt-1 ${borderCls}`}>
-      {/* Header row */}
-      <div className="flex items-center justify-between mb-1.5">
-        <div className="flex items-center gap-1" style={{ color: scoreColor }}>
-          <Wheat className="w-2.5 h-2.5" />
-          <span className="text-[9px] font-semibold">{ar ? "حاسبة العلف" : "Foderkalkylator"}</span>
+    <form onSubmit={e => { e.preventDefault(); onSubmit({
+      ...form, count: Number(form.count), ageDays: Number(form.ageDays),
+      feedConsumptionKg: form.feedConsumptionKg !== "" ? Number(form.feedConsumptionKg) : null,
+      dailyEggTarget: form.dailyEggTarget !== "" ? Number(form.dailyEggTarget) : null,
+      birthDate: form.birthDate || null,
+    }); }} className="space-y-4">
+      <div className="grid grid-cols-2 gap-3">
+        <div className="col-span-2 space-y-1.5">
+          <Label>{ar ? "اسم المجموعة" : "Flocksnamn"} *</Label>
+          <Input value={form.name} onChange={set("name")} required autoFocus />
         </div>
-        <div className="flex items-center gap-1">
-          <span className="text-[9px] font-bold font-mono" style={{ color: scoreColor }}>{score}/100</span>
-          <span className="text-[8px] px-1 rounded-sm font-medium" style={{ background: scoreColor + "22", color: scoreColor }}>
-            {statusLabel}
-          </span>
+        <div className="space-y-1.5">
+          <Label>{ar ? "السلالة" : "Ras"} *</Label>
+          <Input value={form.breed} onChange={set("breed")} required />
+        </div>
+        <div className="space-y-1.5">
+          <Label>{ar ? "عدد الطيور" : "Antal"} *</Label>
+          <Input type="number" min={1} value={form.count} onChange={set("count")} required />
+        </div>
+        <div className="space-y-1.5">
+          <Label>{ar ? "تاريخ الميلاد" : "Födelsedag"}</Label>
+          <Input type="date" value={form.birthDate} onChange={e => {
+            const val = e.target.value;
+            setForm(f => ({ ...f, birthDate: val, ageDays: val ? calcAgeDays(val, 0) : f.ageDays }));
+          }} />
+        </div>
+        <div className="space-y-1.5">
+          <Label>{ar ? "الغرض" : "Syfte"}</Label>
+          <Select value={form.purpose} onValueChange={v => setForm(f => ({ ...f, purpose: v }))}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {Object.entries(PURPOSE_META).map(([k, v]) => (
+                <SelectItem key={k} value={k}>{v.emoji} {ar ? v.labelAr : v.labelSv}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <Label>{ar ? "الحالة الصحية" : "Hälsostatus"}</Label>
+          <Select value={form.healthStatus} onValueChange={v => setForm(f => ({ ...f, healthStatus: v }))}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {Object.entries(HEALTH_META).map(([k, v]) => (
+                <SelectItem key={k} value={k}>{ar ? v.labelAr : v.labelSv}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="col-span-2 space-y-1.5">
+          <Label>{ar ? "ملاحظات" : "Anteckningar"}</Label>
+          <Textarea value={form.notes} onChange={set("notes")} rows={2} />
         </div>
       </div>
-      {/* 3-col metrics */}
-      <div className="grid grid-cols-3 gap-1 text-center">
-        <div className="bg-background/60 rounded px-1 py-1">
-          <div className="text-[11px] font-bold text-foreground leading-none">{expectedGrams}g</div>
-          <div className="text-[8px] text-muted-foreground mt-0.5">{ar ? "علف/طائر/يوم" : "g/fågel/dag"}</div>
-        </div>
-        <div className="bg-background/60 rounded px-1 py-1">
-          <div className="text-[11px] font-bold text-foreground leading-none">{totalDailyKg.toFixed(1)}kg</div>
-          <div className="text-[8px] text-muted-foreground mt-0.5">{ar ? "إجمالي يومي" : "Dagstotalt"}</div>
-        </div>
-        <div className="bg-background/60 rounded px-1 py-1">
-          <div className="text-[11px] font-bold text-foreground leading-none">
-            {fa.feedData.dailyCostPerBird > 0 ? fa.feedData.dailyCostPerBird.toFixed(2) : "—"}
-          </div>
-          <div className="text-[8px] text-muted-foreground mt-0.5">{ar ? "ريال/طائر/يوم" : "kr/fågel/dag"}</div>
-        </div>
+      <div className="flex gap-2 justify-end">
+        <Button type="button" variant="outline" onClick={onClose}>{ar ? "إلغاء" : "Avbryt"}</Button>
+        <Button type="submit" disabled={loading}>{isEdit ? (ar ? "تحديث" : "Uppdatera") : (ar ? "إضافة" : "Lägg till")}</Button>
       </div>
-    </div>
+    </form>
   );
 }
 
-// ══ FLOCK CARD ════════════════════════════════════════════════════════════════
-
-function FlockCard({ flock, onEdit, onDelete, onDetail, onAddProd, onAddHealth, isAdmin, maxEggs, feedAnalysis }: {
-  flock: Flock; onEdit: () => void; onDelete: () => void; onDetail: () => void;
-  onAddProd: () => void; onAddHealth: () => void; isAdmin: boolean; maxEggs: number;
-  feedAnalysis?: FlockFeedAnalysis;
+function ProductionLogForm({ flockName, onSubmit, onClose, loading }: {
+  flockName: string; onSubmit: (d: any) => void; onClose: () => void; loading?: boolean;
 }) {
   const { lang } = useLanguage();
-  const ar      = lang === "ar";
-  const health  = getHealth(flock.healthStatus);
-  const purpose = getPurpose(flock.purpose);
-  const age     = calcAgeDays(flock.birthDate, flock.ageDays);
-  const HealthIcon = health.icon;
-  const perfPct = maxEggs > 0 ? Math.min(100, (flock.avgDaily7d / maxEggs) * 100) : 0;
-  const hasTarget = flock.dailyEggTarget && flock.dailyEggTarget > 0;
-  const targetPct = hasTarget ? Math.min(100, (flock.avgDaily7d / flock.dailyEggTarget!) * 100) : null;
-  const isUnderPerforming = hasTarget && flock.purpose === "eggs" && targetPct !== null && targetPct < 80;
-
+  const ar = lang === "ar";
+  const today = new Date().toISOString().split("T")[0];
+  const [form, setForm] = useState({ date: today, eggCount: "", notes: "" });
+  const set = (k: string) => (e: any) => setForm(f => ({ ...f, [k]: e?.target?.value ?? e }));
   return (
-    <Card className={`group border-2 transition-all duration-200 hover:shadow-lg cursor-pointer ${health.border} ${health.bg}`} onClick={onDetail}>
-      {/* Top health color strip */}
-      <div className="h-1.5 rounded-t-xl" style={{ background: health.color }} />
-
-      <CardContent className="p-4 space-y-3">
-        {/* Row 1: Name + badges */}
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <h3 className="font-bold text-foreground text-sm leading-snug truncate">{flock.name}</h3>
-            <p className="text-xs text-muted-foreground mt-0.5 truncate">{flock.breed}</p>
-          </div>
-          <div className="flex flex-col items-end gap-1 shrink-0">
-            <span className={`text-[10px] px-2 py-0.5 rounded-full border font-semibold ${purpose.color}`}>
-              {purpose.emoji} {ar ? purpose.labelAr : purpose.labelSv}
-            </span>
-            <span
-              className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold"
-              style={{ background: health.color + "18", color: health.color, border: `1px solid ${health.color}33` }}
-            >
-              <HealthIcon className="w-2.5 h-2.5" />
-              {ar ? health.labelAr : health.labelSv}
-            </span>
-          </div>
+    <form onSubmit={e => { e.preventDefault(); onSubmit({ date: form.date, eggCount: Number(form.eggCount), notes: form.notes || null }); }} className="space-y-4">
+      <p className="text-sm text-muted-foreground">{flockName}</p>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <Label>{ar ? "التاريخ" : "Datum"}</Label>
+          <Input type="date" value={form.date} onChange={set("date")} required />
         </div>
-
-        {/* Row 2: 3 stat boxes */}
-        <div className="grid grid-cols-3 gap-1.5 text-center">
-          <div className="bg-background/70 rounded-lg py-2">
-            <div className="font-black text-lg text-foreground leading-none">{flock.count}</div>
-            <div className="text-[9px] text-muted-foreground mt-0.5">{ar ? "طير" : "fåglar"}</div>
-          </div>
-          <div className="bg-background/70 rounded-lg py-2">
-            <div className="font-black text-lg text-foreground leading-none">{ageLabel(age, ar)}</div>
-            <div className="text-[9px] text-muted-foreground mt-0.5">{ar ? "العمر" : "Ålder"}</div>
-          </div>
-          <div className="bg-background/70 rounded-lg py-2">
-            <div className="font-black text-lg leading-none" style={{ color: flock.avgDaily7d > 0 ? "#f59e0b" : undefined }}>
-              {flock.avgDaily7d > 0 ? flock.avgDaily7d : "—"}
-            </div>
-            <div className="text-[9px] text-muted-foreground mt-0.5">{ar ? "بيضة/يوم" : "ägg/dag"}</div>
-          </div>
+        <div className="space-y-1.5">
+          <Label>{ar ? "عدد البيض" : "Antal ägg"}</Label>
+          <Input type="number" min={0} value={form.eggCount} onChange={set("eggCount")} required />
         </div>
+      </div>
+      <div className="flex gap-2 justify-end">
+        <Button type="button" variant="outline" onClick={onClose}>{ar ? "إلغاء" : "Avbryt"}</Button>
+        <Button type="submit" disabled={loading}>{ar ? "تسجيل" : "Spara"}</Button>
+      </div>
+    </form>
+  );
+}
 
-        {/* Row 3: Performance bar */}
-        {flock.purpose === "eggs" && (
-          <div>
-            <div className="flex justify-between text-[10px] text-muted-foreground mb-1">
-              <span>{ar ? "الأداء النسبي" : "Relativ prestanda"}</span>
-              {targetPct !== null && (
-                <span className={`font-semibold ${targetPct >= 90 ? "text-emerald-600" : targetPct >= 70 ? "text-amber-600" : "text-red-600"}`}>
-                  {Math.round(targetPct)}% {ar ? "من الهدف" : "av mål"}
-                </span>
-              )}
-            </div>
-            <div className="h-2 rounded-full bg-background/70 overflow-hidden">
-              <div
-                className="h-full rounded-full transition-all duration-700"
-                style={{
-                  width: `${perfPct}%`,
-                  background: `linear-gradient(90deg, ${health.color}88, ${health.color})`,
-                }}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* Row 4: Feed Intelligence Strip (or fallback) */}
-        {feedAnalysis ? (
-          <FeedMiniStrip fa={feedAnalysis} ar={ar} />
-        ) : (
-          <div className="flex items-center justify-between text-[10px] text-muted-foreground pt-0.5 border-t border-border/30">
-            <span className="flex items-center gap-1">
-              <Wheat className="w-3 h-3" />
-              {flock.feedConsumptionKg != null ? `${flock.feedConsumptionKg} ${ar ? "كجم/يوم" : "kg/dag"}` : (ar ? "علف غير محدد" : "Foder ej angivet")}
-            </span>
-            {flock.totalEggs7d > 0 && (
-              <span className="flex items-center gap-1">
-                <Egg className="w-3 h-3 text-amber-500" />
-                {flock.totalEggs7d} {ar ? "هذا الأسبوع" : "denna vecka"}
-              </span>
-            )}
-          </div>
-        )}
-
-        {/* Row 5: Under-performing alert */}
-        {isUnderPerforming && (
-          <div className="flex items-center gap-1.5 bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-400 rounded-lg px-2.5 py-1.5 text-[10px] font-medium">
-            <AlertTriangle className="w-3 h-3 shrink-0" />
-            {ar ? "إنتاج أقل من ٨٠٪ من الهدف!" : "Produktion under 80% av målet!"}
-          </div>
-        )}
-
-        {/* Row 6: Actions */}
-        <div className="flex items-center gap-1 pt-1" onClick={e => e.stopPropagation()}>
-          <Button size="sm" variant="ghost" className="h-7 flex-1 text-[10px] gap-1" onClick={onDetail}>
-            <ChevronRight className="w-3 h-3" />
-            {ar ? "تفاصيل" : "Detaljer"}
-          </Button>
-          {isAdmin && (
-            <>
-              <Button size="sm" variant="ghost" className="h-7 px-2" onClick={onAddProd} aria-label={ar ? "تسجيل إنتاج بيض" : "Registrera äggproduktion"} title={ar ? "تسجيل إنتاج" : "Produktion"}>
-                <Egg className="w-3 h-3 text-amber-600" />
-              </Button>
-              <Button size="sm" variant="ghost" className="h-7 px-2" onClick={onAddHealth} aria-label={ar ? "تسجيل حدث صحي" : "Hälsohändelse"} title={ar ? "حدث صحي" : "Hälsa"}>
-                <Stethoscope className="w-3 h-3 text-blue-600" />
-              </Button>
-              <Button size="sm" variant="ghost" className="h-7 px-2" onClick={onEdit} aria-label={ar ? "تعديل المجموعة" : "Redigera flock"}>
-                <Pencil className="w-3 h-3 text-muted-foreground" />
-              </Button>
-              <Button size="sm" variant="ghost" className="h-7 px-2" onClick={onDelete} aria-label={ar ? "حذف المجموعة" : "Radera flock"}>
-                <Trash2 className="w-3 h-3 text-destructive" />
-              </Button>
-            </>
-          )}
+function HealthLogForm({ flockName, onSubmit, onClose, loading }: {
+  flockName: string; onSubmit: (d: any) => void; onClose: () => void; loading?: boolean;
+}) {
+  const { lang } = useLanguage();
+  const ar = lang === "ar";
+  const today = new Date().toISOString().split("T")[0];
+  const [form, setForm] = useState({ date: today, status: "healthy", symptoms: "", treatment: "", notes: "" });
+  const set = (k: string) => (e: any) => setForm(f => ({ ...f, [k]: e?.target?.value ?? e }));
+  return (
+    <form onSubmit={e => { e.preventDefault(); onSubmit({ date: form.date, status: form.status, symptoms: form.symptoms || null, treatment: form.treatment || null, notes: form.notes || null }); }} className="space-y-4">
+      <p className="text-sm text-muted-foreground">{flockName}</p>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <Label>{ar ? "التاريخ" : "Datum"}</Label>
+          <Input type="date" value={form.date} onChange={set("date")} required />
         </div>
-      </CardContent>
-    </Card>
+        <div className="space-y-1.5">
+          <Label>{ar ? "الحالة" : "Status"}</Label>
+          <Select value={form.status} onValueChange={v => setForm(f => ({ ...f, status: v }))}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {Object.entries(HEALTH_META).map(([k, v]) => (
+                <SelectItem key={k} value={k}>{ar ? v.labelAr : v.labelSv}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="col-span-2 space-y-1.5">
+          <Label>{ar ? "الأعراض" : "Symptom"}</Label>
+          <Input value={form.symptoms} onChange={set("symptoms")} />
+        </div>
+        <div className="col-span-2 space-y-1.5">
+          <Label>{ar ? "العلاج" : "Behandling"}</Label>
+          <Input value={form.treatment} onChange={set("treatment")} />
+        </div>
+      </div>
+      <div className="flex gap-2 justify-end">
+        <Button type="button" variant="outline" onClick={onClose}>{ar ? "إلغاء" : "Avbryt"}</Button>
+        <Button type="submit" disabled={loading}>{ar ? "تسجيل" : "Spara"}</Button>
+      </div>
+    </form>
   );
 }
 
@@ -1216,45 +719,36 @@ function FlockCard({ flock, onEdit, onDelete, onDetail, onAddProd, onAddHealth, 
 
 export default function Flocks() {
   const { isAdmin } = useAuth();
-  const { lang }    = useLanguage();
-  const { toast }   = useToast();
+  const { lang } = useLanguage();
+  const { toast } = useToast();
   const ar = lang === "ar";
 
-  const [flocks,    setFlocks]    = useState<Flock[]>([]);
-  const [analytics, setAnalytics] = useState<Analytics | null>(null);
-  const [feedMap,   setFeedMap]   = useState<Map<number, FlockFeedAnalysis>>(new Map());
-  const [loading,   setLoading]   = useState(true);
-  const [saving,    setSaving]    = useState(false);
+  const [flocks, setFlocks] = useState<Flock[]>([]);
+  const [cycles, setCycles] = useState<HatchingCycle[]>([]);
+  const [sales, setSales] = useState<Sale[]>([]);
+  const [incubators, setIncubators] = useState<Incubator[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
-  // Dialog states
-  const [addOpen,     setAddOpen]     = useState(false);
-  const [editFlock,   setEditFlock]   = useState<Flock | null>(null);
-  const [deleteId,    setDeleteId]    = useState<number | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [editFlock, setEditFlock] = useState<Flock | null>(null);
+  const [deleteId, setDeleteId] = useState<number | null>(null);
   const [detailFlock, setDetailFlock] = useState<Flock | null>(null);
-  const [prodFlock,   setProdFlock]   = useState<Flock | null>(null);
-  const [healthFlock, setHealthFlock] = useState<Flock | null>(null);
-
-  // Filters
-  const [search,     setSearch]     = useState("");
-  const [filterPurpose, setFilterPurpose] = useState("all");
-  const [filterHealth,  setFilterHealth]  = useState("all");
-  const [sortBy,     setSortBy]     = useState("name");
+  const [viewBatchFlocks, setViewBatchFlocks] = useState<BatchChickenInfo | null>(null);
+  const [filterView, setFilterView] = useState<"all" | "alive" | "incubating">("all");
 
   const load = useCallback(async () => {
     try {
-      const [f, a, feedSummary] = await Promise.all([
+      const [f, c, s, inc] = await Promise.all([
         apiFetch<Flock[]>("flocks"),
-        apiFetch<Analytics>("flocks/analytics/summary"),
-        apiFetch<FeedSummaryResponse>("feed-intelligence/summary?days=30").catch(() => null),
+        apiFetch<HatchingCycle[]>("hatching-cycles"),
+        apiFetch<Sale[]>("sales").catch(() => [] as Sale[]),
+        apiFetch<Incubator[]>("incubators").catch(() => [] as Incubator[]),
       ]);
       setFlocks(f);
-      setAnalytics(a);
-      // Build flockId → feed analysis map
-      if (feedSummary?.flockAnalyses) {
-        const m = new Map<number, FlockFeedAnalysis>();
-        for (const fa of feedSummary.flockAnalyses) m.set(fa.flockId, fa);
-        setFeedMap(m);
-      }
+      setCycles(c);
+      setSales(s);
+      setIncubators(inc);
     } catch (err: any) {
       toast({ title: ar ? "خطأ في التحميل" : "Laddningsfel", description: err.message, variant: "destructive" });
     }
@@ -1263,31 +757,44 @@ export default function Flocks() {
 
   useEffect(() => { load(); }, [load]);
 
-  // ── Filter + Sort ─────────────────────────────────────────────────────────
+  const incubatorMap = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const inc of incubators) m.set(inc.id, inc.name);
+    return m;
+  }, [incubators]);
 
-  const filtered = useMemo(() => {
-    let list = [...flocks];
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
-      list = list.filter(f => f.name.toLowerCase().includes(q) || f.breed.toLowerCase().includes(q));
-    }
-    if (filterPurpose !== "all") list = list.filter(f => f.purpose === filterPurpose);
-    if (filterHealth  !== "all") list = list.filter(f => f.healthStatus === filterHealth);
-    list.sort((a, b) => {
-      if (sortBy === "name")       return a.name.localeCompare(b.name);
-      if (sortBy === "age")        return calcAgeDays(b.birthDate, b.ageDays) - calcAgeDays(a.birthDate, a.ageDays);
-      if (sortBy === "production") return b.avgDaily7d - a.avgDaily7d;
-      if (sortBy === "health")     return a.healthStatus.localeCompare(b.healthStatus);
-      if (sortBy === "count")      return b.count - a.count;
-      return 0;
-    });
-    return list;
-  }, [flocks, search, filterPurpose, filterHealth, sortBy]);
+  const batches = useMemo<BatchChickenInfo[]>(() => {
+    return cycles
+      .sort((a, b) => a.id - b.id)
+      .map(cycle => {
+        const cycleSales = sales.filter(s => s.hatchingCycleId === cycle.id);
+        const totalSold = cycleSales.reduce((sum, s) => sum + s.quantity, 0);
+        const salesRevenue = cycleSales.reduce((sum, s) => sum + Number(s.totalPrice), 0);
+        const totalHatched = cycle.eggsHatched ?? 0;
+        const remaining = Math.max(0, totalHatched - totalSold);
+        const machineName = cycle.incubatorId ? (incubatorMap.get(cycle.incubatorId) ?? "—") : "—";
+        const ageDays = cycle.startDate ? cycleDays(cycle.startDate) : 0;
+        const isActive = cycle.status === "incubating" || cycle.status === "hatching";
+        const batchFlocks = flocks.filter(f => f.notes?.includes(`batch:${cycle.id}`) || f.notes?.includes(`فقسة:${cycle.id}`));
 
-  const maxEggs = useMemo(() => Math.max(...flocks.map(f => f.avgDaily7d), 0), [flocks]);
+        return { cycle, machineName, totalHatched, totalSold, remaining, salesRevenue, ageDays, isActive, flocks: batchFlocks };
+      });
+  }, [cycles, sales, incubatorMap, flocks]);
 
-  // ── CRUD handlers ─────────────────────────────────────────────────────────
+  const filteredBatches = useMemo(() => {
+    if (filterView === "alive") return batches.filter(b => b.remaining > 0);
+    if (filterView === "incubating") return batches.filter(b => b.isActive);
+    return batches;
+  }, [batches, filterView]);
 
+  const totalAliveChickens = useMemo(() => batches.reduce((s, b) => s + b.remaining, 0), [batches]);
+  const totalSold = useMemo(() => batches.reduce((s, b) => s + b.totalSold, 0), [batches]);
+  const totalHatched = useMemo(() => batches.reduce((s, b) => s + b.totalHatched, 0), [batches]);
+  const totalRevenue = useMemo(() => batches.reduce((s, b) => s + b.salesRevenue, 0), [batches]);
+  const activeBatches = useMemo(() => batches.filter(b => b.isActive).length, [batches]);
+  const batchesWithChickens = useMemo(() => batches.filter(b => b.remaining > 0).length, [batches]);
+
+  // CRUD
   const handleCreate = async (data: any) => {
     setSaving(true);
     try {
@@ -1296,7 +803,7 @@ export default function Flocks() {
       setAddOpen(false);
       await load();
     } catch (err: any) {
-      toast({ title: ar ? "خطأ في الإضافة" : "Fel vid tillägg", description: err.message, variant: "destructive" });
+      toast({ title: ar ? "خطأ" : "Fel", description: err.message, variant: "destructive" });
     }
     setSaving(false);
   };
@@ -1310,7 +817,7 @@ export default function Flocks() {
       setEditFlock(null);
       await load();
     } catch (err: any) {
-      toast({ title: ar ? "خطأ في التحديث" : "Fel vid uppdatering", description: err.message, variant: "destructive" });
+      toast({ title: ar ? "خطأ" : "Fel", description: err.message, variant: "destructive" });
     }
     setSaving(false);
   };
@@ -1323,50 +830,38 @@ export default function Flocks() {
       setDeleteId(null);
       await load();
     } catch (err: any) {
-      toast({ title: ar ? "خطأ في الحذف" : "Fel vid borttagning", description: err.message, variant: "destructive" });
-    }
-  };
-
-  const handleAddProd = async (flock: Flock, data: any) => {
-    try {
-      await apiFetch(`flocks/${flock.id}/production-logs`, { method: "POST", body: JSON.stringify(data) });
-      toast({ title: ar ? "تم تسجيل الإنتاج" : "Produktion registrerad" });
-      setProdFlock(null);
-      await load();
-    } catch (err: any) {
       toast({ title: ar ? "خطأ" : "Fel", description: err.message, variant: "destructive" });
     }
   };
 
-  const handleAddHealth = async (flock: Flock, data: any) => {
-    try {
-      await apiFetch(`flocks/${flock.id}/health-logs`, { method: "POST", body: JSON.stringify(data) });
-      toast({ title: ar ? "تم تسجيل الحالة" : "Hälsostatus uppdaterad" });
-      setHealthFlock(null);
-      await load();
-    } catch (err: any) {
-      toast({ title: ar ? "خطأ" : "Fel", description: err.message, variant: "destructive" });
-    }
-  };
-
-  // ── Render ────────────────────────────────────────────────────────────────
-
-  const totalChickens = flocks.reduce((s, f) => s + f.count, 0);
-  const healthyCount  = flocks.filter(f => f.healthStatus === "healthy").length;
-  const sickCount     = flocks.filter(f => f.healthStatus === "sick" || f.healthStatus === "quarantine").length;
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <Skeleton className="h-10 w-64" />
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {[1, 2, 3, 4].map(i => <Card key={i}><CardContent className="pt-5"><Skeleton className="h-20 w-full" /></CardContent></Card>)}
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {[1, 2, 3, 4, 5, 6].map(i => <Card key={i}><CardContent className="p-4"><Skeleton className="h-48 w-full" /></CardContent></Card>)}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
 
-      {/* ── Page Header ──────────────────────────────────────────────────── */}
+      {/* ── Page Header ── */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Bird className="w-6 h-6 text-primary" />
-            {ar ? "إدارة الدواجن" : "Fjäderfähantering"}
+            {ar ? "دجاجات المزرعة" : "Gårdens Kycklingar"}
           </h1>
           <p className="text-muted-foreground text-sm mt-0.5">
-            {flocks.length} {ar ? "مجموعة" : "flockar"} · {totalChickens.toLocaleString()} {ar ? "طير إجمالاً" : "fåglar totalt"}
+            {ar
+              ? `${cycles.length} فقسة · ${fmt(totalAliveChickens)} دجاجة حية · ${fmt(totalSold)} مباعة`
+              : `${cycles.length} satser · ${fmt(totalAliveChickens)} levande · ${fmt(totalSold)} sålda`}
           </p>
         </div>
         {isAdmin && (
@@ -1377,235 +872,163 @@ export default function Flocks() {
         )}
       </div>
 
-      {/* ── KPI Strip ────────────────────────────────────────────────────── */}
-      {loading ? (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {[1,2,3,4].map(i => <Card key={i}><CardContent className="pt-5"><Skeleton className="h-14 w-full" /></CardContent></Card>)}
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {/* Total birds */}
-          <Card className="border-border/50">
-            <CardContent className="pt-4 pb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center shrink-0">
-                  <Bird className="w-4 h-4 text-blue-600" />
-                </div>
-                <div>
-                  <div className="text-2xl font-black text-foreground">{totalChickens.toLocaleString()}</div>
-                  <div className="text-[10px] text-muted-foreground">{ar ? "إجمالي الطيور" : "Totalt antal fåglar"}</div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+      {/* ── Hero Stats ── */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        <Card className="border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/20">
+          <CardContent className="pt-3 pb-3 text-center">
+            <Bird className="w-5 h-5 text-emerald-600 mx-auto mb-1" />
+            <div className="text-2xl font-black text-emerald-600">{fmt(totalAliveChickens)}</div>
+            <div className="text-[10px] text-muted-foreground">{ar ? "دجاجة حية" : "Levande"}</div>
+          </CardContent>
+        </Card>
+        <Card className="border-border/50">
+          <CardContent className="pt-3 pb-3 text-center">
+            <Egg className="w-5 h-5 text-amber-500 mx-auto mb-1" />
+            <div className="text-2xl font-black text-foreground">{fmt(totalHatched)}</div>
+            <div className="text-[10px] text-muted-foreground">{ar ? "فقست بالمجموع" : "Totalt kläckta"}</div>
+          </CardContent>
+        </Card>
+        <Card className="border-border/50">
+          <CardContent className="pt-3 pb-3 text-center">
+            <ShoppingCart className="w-5 h-5 text-blue-500 mx-auto mb-1" />
+            <div className="text-2xl font-black text-blue-600">{fmt(totalSold)}</div>
+            <div className="text-[10px] text-muted-foreground">{ar ? "صوص مباع" : "Sålda"}</div>
+          </CardContent>
+        </Card>
+        <Card className="border-border/50">
+          <CardContent className="pt-3 pb-3 text-center">
+            <TrendingUp className="w-5 h-5 text-emerald-500 mx-auto mb-1" />
+            <div className="text-2xl font-black text-emerald-600">{fmt(totalRevenue)}</div>
+            <div className="text-[10px] text-muted-foreground">{ar ? "إيراد المبيعات" : "Intäkter"}</div>
+          </CardContent>
+        </Card>
+        <Card className="border-border/50">
+          <CardContent className="pt-3 pb-3 text-center">
+            <Package className="w-5 h-5 text-violet-500 mx-auto mb-1" />
+            <div className="text-2xl font-black text-foreground">{batchesWithChickens}</div>
+            <div className="text-[10px] text-muted-foreground">{ar ? "فقسة فيها دجاج" : "Med kycklingar"}</div>
+          </CardContent>
+        </Card>
+        <Card className="border-border/50">
+          <CardContent className="pt-3 pb-3 text-center">
+            <Egg className="w-5 h-5 text-blue-500 mx-auto mb-1" />
+            <div className="text-2xl font-black text-blue-600">{activeBatches}</div>
+            <div className="text-[10px] text-muted-foreground">{ar ? "فقسة نشطة" : "Aktiva satser"}</div>
+          </CardContent>
+        </Card>
+      </div>
 
-          {/* Best producer */}
-          <Card className="border-border/50">
-            <CardContent className="pt-4 pb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0">
-                  <Star className="w-4 h-4 text-amber-600" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-2xl font-black text-amber-600">
-                    {analytics?.topProducerAvgDaily ?? "—"}
-                  </div>
-                  <div className="text-[10px] text-muted-foreground truncate">
-                    {analytics?.topProducerName ?? (ar ? "أفضل منتج" : "Bästa producent")}
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+      {/* ── Filter Tabs ── */}
+      <div className="flex gap-2">
+        {[
+          { key: "all" as const, label: ar ? `كل الفقسات (${cycles.length})` : `Alla satser (${cycles.length})` },
+          { key: "alive" as const, label: ar ? `فيها دجاج (${batchesWithChickens})` : `Med kycklingar (${batchesWithChickens})` },
+          { key: "incubating" as const, label: ar ? `قيد التفقيس (${activeBatches})` : `Inkuberar (${activeBatches})` },
+        ].map(f => (
+          <Button
+            key={f.key}
+            size="sm"
+            variant={filterView === f.key ? "default" : "outline"}
+            className="text-xs h-8"
+            onClick={() => setFilterView(f.key)}
+          >
+            {f.label}
+          </Button>
+        ))}
+      </div>
 
-          {/* Health status */}
-          <Card className="border-border/50">
-            <CardContent className="pt-4 pb-4">
-              <div className="flex items-center gap-3">
-                <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${sickCount > 0 ? "bg-red-100 dark:bg-red-900/30" : "bg-emerald-100 dark:bg-emerald-900/30"}`}>
-                  <Heart className={`w-4 h-4 ${sickCount > 0 ? "text-red-600" : "text-emerald-600"}`} />
-                </div>
-                <div>
-                  <div className={`text-2xl font-black ${sickCount > 0 ? "text-red-600" : "text-emerald-600"}`}>
-                    {flocks.length > 0 ? `${Math.round((healthyCount / flocks.length) * 100)}%` : "—"}
-                  </div>
-                  <div className="text-[10px] text-muted-foreground">
-                    {sickCount > 0
-                      ? (ar ? `${sickCount} مجموعة مريضة` : `${sickCount} sjuka flockar`)
-                      : (ar ? "جميع المجموعات بصحة جيدة" : "Alla flockar friska")
-                    }
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Weekly eggs */}
-          <Card className="border-border/50">
-            <CardContent className="pt-4 pb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center shrink-0">
-                  <Egg className="w-4 h-4 text-violet-600" />
-                </div>
-                <div>
-                  <div className="text-2xl font-black text-foreground">
-                    {(analytics?.totalEggs7d ?? 0).toLocaleString()}
-                  </div>
-                  <div className="text-[10px] text-muted-foreground">
-                    {ar ? "بيض آخر ٧ أيام" : "Ägg senaste 7 dagar"}
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* ── Feed Intelligence Banner ─────────────────────────────────────── */}
-      {feedMap.size > 0 && (
-        <div className="bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-950/20 dark:to-orange-950/20 border border-amber-200 dark:border-amber-800 rounded-xl px-4 py-3 flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center shrink-0">
-            <Wheat className="w-4 h-4 text-amber-600" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">
-              {ar ? "حاسبة العلف مفعّلة" : "Foderkalkylator aktiv"}
-            </p>
-            <p className="text-[11px] text-amber-700/70 dark:text-amber-400/70 mt-0.5">
-              {ar
-                ? "كل بطاقة قطيع تعرض توقع العلف اليومي والتكلفة بناءً على عمر السلالة. اضغط \"العلف\" في تفاصيل القطيع للتحليل الكامل."
-                : "Varje flockskort visar daglig foderestimering och kostnad baserat på rasens ålder. Klicka \"Foder\" i detaljerna för fullständig analys."}
-            </p>
-          </div>
-          <DollarSign className="w-4 h-4 text-amber-500 shrink-0" />
-        </div>
-      )}
-
-      {/* ── Filter Bar ───────────────────────────────────────────────────── */}
-      <Card className="border-border/50">
-        <CardContent className="pt-4 pb-4">
-          <div className="flex flex-wrap items-center gap-3">
-            {/* Search */}
-            <div className="relative flex-1 min-w-48">
-              <Search className="absolute start-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-              <Input
-                placeholder={ar ? "ابحث باسم أو السلالة..." : "Sök på namn eller ras..."}
-                className="ps-8 h-8 text-sm"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-              />
-              {search && <button onClick={() => setSearch("")} className="absolute end-2 top-1/2 -translate-y-1/2"><X className="w-3.5 h-3.5 text-muted-foreground" /></button>}
-            </div>
-
-            {/* Purpose filter */}
-            <Select value={filterPurpose} onValueChange={setFilterPurpose}>
-              <SelectTrigger className="h-8 text-xs w-36">
-                <Filter className="w-3 h-3 me-1.5" />
-                <SelectValue placeholder={ar ? "الغرض" : "Syfte"} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{ar ? "كل الأغراض" : "Alla syften"}</SelectItem>
-                {Object.entries(PURPOSE_META).map(([k, v]) => (
-                  <SelectItem key={k} value={k}>{v.emoji} {ar ? v.labelAr : v.labelSv}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            {/* Health filter */}
-            <Select value={filterHealth} onValueChange={setFilterHealth}>
-              <SelectTrigger className="h-8 text-xs w-36">
-                <Heart className="w-3 h-3 me-1.5" />
-                <SelectValue placeholder={ar ? "الصحة" : "Hälsa"} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{ar ? "كل الحالات" : "Alla statusar"}</SelectItem>
-                {Object.entries(HEALTH_META).map(([k, v]) => (
-                  <SelectItem key={k} value={k}>{ar ? v.labelAr : v.labelSv}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            {/* Sort */}
-            <Select value={sortBy} onValueChange={setSortBy}>
-              <SelectTrigger className="h-8 text-xs w-36">
-                <ArrowUpDown className="w-3 h-3 me-1.5" />
-                <SelectValue placeholder={ar ? "ترتيب" : "Sortera"} />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="name">{ar ? "حسب الاسم" : "Namn"}</SelectItem>
-                <SelectItem value="age">{ar ? "حسب العمر" : "Ålder"}</SelectItem>
-                <SelectItem value="production">{ar ? "حسب الإنتاج" : "Produktion"}</SelectItem>
-                <SelectItem value="health">{ar ? "حسب الصحة" : "Hälsa"}</SelectItem>
-                <SelectItem value="count">{ar ? "حسب العدد" : "Antal"}</SelectItem>
-              </SelectContent>
-            </Select>
-
-            {/* Active filter count */}
-            {(filterPurpose !== "all" || filterHealth !== "all" || search) && (
-              <Button size="sm" variant="ghost" className="h-8 text-xs gap-1.5 text-muted-foreground" onClick={() => { setSearch(""); setFilterPurpose("all"); setFilterHealth("all"); }}>
-                <X className="w-3 h-3" />
-                {ar ? "مسح الفلاتر" : "Rensa filter"}
-              </Button>
-            )}
-
-            <span className="text-xs text-muted-foreground ms-auto">
-              {filtered.length} / {flocks.length} {ar ? "مجموعة" : "flockar"}
-            </span>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* ── Flock Grid ───────────────────────────────────────────────────── */}
-      {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[1,2,3,4,5,6].map(i => (
-            <Card key={i}><CardContent className="p-4"><Skeleton className="h-48 w-full" /></CardContent></Card>
-          ))}
-        </div>
-      ) : filtered.length === 0 ? (
+      {/* ── Batch Cards Grid ── */}
+      {filteredBatches.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
             <Bird className="w-16 h-16 text-muted-foreground/30 mb-4" />
-            {flocks.length === 0 ? (
-              <>
-                <h3 className="font-bold text-lg mb-1">{ar ? "لا توجد مجموعات بعد" : "Inga flockar ännu"}</h3>
-                <p className="text-muted-foreground text-sm">
-                  {isAdmin ? (ar ? "ابدأ بإضافة مجموعتك الأولى" : "Börja med att lägga till din första flock") : (ar ? "لا توجد مجموعات مسجلة" : "Inga registrerade flockar")}
-                </p>
-              </>
-            ) : (
-              <>
-                <h3 className="font-bold text-lg mb-1">{ar ? "لا توجد نتائج" : "Inga resultat"}</h3>
-                <p className="text-muted-foreground text-sm">{ar ? "جرب تغيير الفلاتر أو مصطلح البحث" : "Försök ändra filter eller sökterm"}</p>
-              </>
-            )}
+            <h3 className="font-bold text-lg mb-1">{ar ? "لا توجد فقسات مطابقة" : "Inga matchande satser"}</h3>
+            <p className="text-muted-foreground text-sm">{ar ? "جرب تغيير الفلتر" : "Ändra filter"}</p>
           </CardContent>
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filtered.map(flock => (
-            <FlockCard
-              key={flock.id}
-              flock={flock}
-              isAdmin={isAdmin}
-              maxEggs={maxEggs}
-              feedAnalysis={feedMap.get(flock.id)}
-              onDetail={() => setDetailFlock(flock)}
-              onEdit={() => setEditFlock(flock)}
-              onDelete={() => setDeleteId(flock.id)}
-              onAddProd={() => setProdFlock(flock)}
-              onAddHealth={() => setHealthFlock(flock)}
+          {filteredBatches.map(batch => (
+            <BatchCard
+              key={batch.cycle.id}
+              batch={batch}
+              ar={ar}
+              onViewFlocks={setViewBatchFlocks}
             />
           ))}
         </div>
       )}
 
-      {/* ── Active Hatching Cycles ──────────────────────────────────────── */}
-      <ActiveHatchingCycles />
+      {/* ── Existing Flocks Section ── */}
+      {flocks.length > 0 && (
+        <div>
+          <h2 className="text-lg font-bold flex items-center gap-2 mb-3">
+            <Users className="w-5 h-5 text-primary" />
+            {ar ? "مجموعات الدجاج المسجلة" : "Registrerade flockar"}
+            <Badge variant="secondary" className="text-xs">{flocks.length}</Badge>
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {flocks.map(flock => {
+              const health = getHealth(flock.healthStatus);
+              const purpose = getPurpose(flock.purpose);
+              const age = calcAgeDays(flock.birthDate, flock.ageDays);
+              const HealthIcon = health.icon;
+              return (
+                <Card key={flock.id} className={`cursor-pointer transition-all hover:shadow-md ${health.border} ${health.bg}`}
+                  onClick={() => setDetailFlock(flock)}>
+                  <div className="h-1" style={{ background: health.color }} />
+                  <CardContent className="p-3 space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <h3 className="font-bold text-sm truncate">{flock.name}</h3>
+                        <p className="text-[11px] text-muted-foreground">{flock.breed}</p>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <span className={`text-[9px] px-1.5 py-0.5 rounded-full border font-medium ${purpose.color}`}>
+                          {purpose.emoji}
+                        </span>
+                        <span className="flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded-full font-medium"
+                          style={{ background: health.color + "18", color: health.color }}>
+                          <HealthIcon className="w-2.5 h-2.5" />
+                        </span>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-1 text-center">
+                      <div className="bg-background/60 rounded py-1">
+                        <div className="font-black text-sm">{flock.count}</div>
+                        <div className="text-[8px] text-muted-foreground">{ar ? "طير" : "fåglar"}</div>
+                      </div>
+                      <div className="bg-background/60 rounded py-1">
+                        <div className="font-black text-sm">{ageLabel(age, ar)}</div>
+                        <div className="text-[8px] text-muted-foreground">{ar ? "العمر" : "Ålder"}</div>
+                      </div>
+                      <div className="bg-background/60 rounded py-1">
+                        <div className="font-black text-sm text-amber-600">{flock.avgDaily7d || "—"}</div>
+                        <div className="text-[8px] text-muted-foreground">{ar ? "بيض/يوم" : "ägg/dag"}</div>
+                      </div>
+                    </div>
+                    {isAdmin && (
+                      <div className="flex gap-1 pt-1" onClick={e => e.stopPropagation()}>
+                        <Button size="sm" variant="ghost" className="h-6 flex-1 text-[9px]" onClick={() => setDetailFlock(flock)}>
+                          <ChevronRight className="w-3 h-3" />
+                        </Button>
+                        <Button size="sm" variant="ghost" className="h-6 px-1.5" onClick={() => setEditFlock(flock)}>
+                          <Pencil className="w-3 h-3 text-muted-foreground" />
+                        </Button>
+                        <Button size="sm" variant="ghost" className="h-6 px-1.5" onClick={() => setDeleteId(flock.id)}>
+                          <Trash2 className="w-3 h-3 text-destructive" />
+                        </Button>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
-      {/* ── Dialogs ──────────────────────────────────────────────────────── */}
-
-      {/* Add flock */}
+      {/* ── Dialogs ── */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>{ar ? "إضافة مجموعة جديدة" : "Lägg till ny flock"}</DialogTitle></DialogHeader>
@@ -1613,7 +1036,6 @@ export default function Flocks() {
         </DialogContent>
       </Dialog>
 
-      {/* Edit flock */}
       <Dialog open={!!editFlock} onOpenChange={v => !v && setEditFlock(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>{ar ? "تعديل المجموعة" : "Redigera flock"}</DialogTitle></DialogHeader>
@@ -1621,52 +1043,16 @@ export default function Flocks() {
         </DialogContent>
       </Dialog>
 
-      {/* Flock detail */}
       {detailFlock && (
-        <FlockDetailModal
-          flock={detailFlock}
-          onClose={() => setDetailFlock(null)}
-          onRefresh={load}
-          isAdmin={isAdmin}
-          feedAnalysis={feedMap.get(detailFlock.id)}
-        />
+        <FlockDetailModal flock={detailFlock} onClose={() => setDetailFlock(null)} onRefresh={load} isAdmin={isAdmin} />
       )}
 
-      {/* Quick: add production log */}
-      <Dialog open={!!prodFlock} onOpenChange={v => !v && setProdFlock(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle>{ar ? "تسجيل إنتاج البيض" : "Registrera äggproduktion"}</DialogTitle></DialogHeader>
-          {prodFlock && (
-            <ProductionLogForm
-              flockName={prodFlock.name}
-              onSubmit={data => handleAddProd(prodFlock, data)}
-              onClose={() => setProdFlock(null)}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Quick: add health log */}
-      <Dialog open={!!healthFlock} onOpenChange={v => !v && setHealthFlock(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle>{ar ? "تسجيل حدث صحي" : "Registrera hälsohändelse"}</DialogTitle></DialogHeader>
-        {healthFlock && (
-            <HealthLogForm
-              flockName={healthFlock.name}
-              onSubmit={data => handleAddHealth(healthFlock, data)}
-              onClose={() => setHealthFlock(null)}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete confirm */}
       <AlertDialog open={deleteId != null} onOpenChange={v => !v && setDeleteId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{ar ? "تأكيد الحذف" : "Bekräfta borttagning"}</AlertDialogTitle>
             <AlertDialogDescription>
-              {ar ? "سيتم حذف المجموعة وجميع سجلاتها (الإنتاج والصحة) بشكل نهائي." : "Flocken och all dess historik (produktion och hälsa) raderas permanent."}
+              {ar ? "سيتم حذف المجموعة وجميع سجلاتها بشكل نهائي." : "Flocken och all dess historik raderas permanent."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
