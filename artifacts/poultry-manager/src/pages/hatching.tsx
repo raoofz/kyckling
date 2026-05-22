@@ -1,9 +1,9 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import {
   useListHatchingCycles, getListHatchingCyclesQueryKey,
   useCreateHatchingCycle, useDeleteHatchingCycle, useUpdateHatchingCycle
 } from "@workspace/api-client-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,18 +13,110 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Plus, Egg, Pencil, Trash2, Thermometer, Droplets, Clock, ArrowLeftRight, Info, TrendingUp, TrendingDown, Minus, Target, AlertTriangle, CheckCircle2, ChevronDown, ChevronUp } from "lucide-react";
+import { Plus, Egg, Pencil, Trash2, Thermometer, Droplets, Clock, ArrowLeftRight, Info, TrendingUp, TrendingDown, Minus, Target, AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, Box, CloudSun, Wind, MapPin } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { apiPath } from "@/lib/api";
+
+// ── Mosul Weather Widget ────────────────────────────────────────────────────
+// West Mosul coordinates: 36.34°N, 43.10°E
+const MOSUL_LAT = 36.34;
+const MOSUL_LON = 43.10;
+
+function MosulWeatherWidget({ ar }: { ar: boolean }) {
+  const { data: weather, isLoading } = useQuery({
+    queryKey: ["mosul-weather"],
+    queryFn: async () => {
+      const res = await fetch(
+        `https://api.open-meteo.com/v1/forecast?latitude=${MOSUL_LAT}&longitude=${MOSUL_LON}&current=temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code&timezone=Asia/Baghdad`
+      );
+      if (!res.ok) throw new Error("Weather fetch failed");
+      return res.json();
+    },
+    refetchInterval: 10 * 60_000,
+    staleTime: 5 * 60_000,
+  });
+
+  if (isLoading || !weather?.current) {
+    return (
+      <Card className="border-sky-200 bg-gradient-to-br from-sky-50 to-blue-50">
+        <CardContent className="py-3 px-4">
+          <Skeleton className="h-12 w-full" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const { temperature_2m: temp, relative_humidity_2m: hum, wind_speed_10m: wind } = weather.current;
+
+  const tempWarning = temp > 42 || temp < 5;
+  const humWarning = hum < 20 || hum > 85;
+
+  return (
+    <Card className={`border-sky-200 bg-gradient-to-br from-sky-50/80 to-blue-50/50 ${tempWarning ? "ring-1 ring-red-300" : ""}`}>
+      <CardContent className="py-3 px-4">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <div className="w-9 h-9 rounded-lg bg-sky-500/15 flex items-center justify-center">
+              <CloudSun className="w-5 h-5 text-sky-600" />
+            </div>
+            <div>
+              <p className="text-xs text-sky-600 font-medium flex items-center gap-1">
+                <MapPin className="w-3 h-3" />
+                {ar ? "طقس الموصل - غرب" : "Mosul väder - Väst"}
+              </p>
+              <p className="text-[10px] text-muted-foreground">
+                {ar ? "لمقارنة ظروف البيئة مع الماكينة" : "Jämför utomhusförhållanden med maskin"}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-1.5">
+              <Thermometer className={`w-4 h-4 ${tempWarning ? "text-red-500" : "text-orange-500"}`} />
+              <div className="text-center">
+                <p className={`text-lg font-bold leading-none ${tempWarning ? "text-red-500" : "text-orange-600"}`}>{temp}°C</p>
+                <p className="text-[9px] text-muted-foreground">{ar ? "الحرارة" : "Temp"}</p>
+              </div>
+            </div>
+
+            <div className="w-px h-8 bg-sky-200" />
+
+            <div className="flex items-center gap-1.5">
+              <Droplets className={`w-4 h-4 ${humWarning ? "text-red-500" : "text-blue-500"}`} />
+              <div className="text-center">
+                <p className={`text-lg font-bold leading-none ${humWarning ? "text-red-500" : "text-blue-600"}`}>{hum}%</p>
+                <p className="text-[9px] text-muted-foreground">{ar ? "الرطوبة" : "Fukt"}</p>
+              </div>
+            </div>
+
+            <div className="w-px h-8 bg-sky-200" />
+
+            <div className="flex items-center gap-1.5">
+              <Wind className="w-4 h-4 text-gray-500" />
+              <div className="text-center">
+                <p className="text-lg font-bold leading-none text-gray-600">{wind}</p>
+                <p className="text-[9px] text-muted-foreground">{ar ? "كم/س" : "km/h"}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {(tempWarning || humWarning) && (
+          <div className="mt-2 flex items-center gap-1.5 text-xs text-red-600 bg-red-50 px-2.5 py-1.5 rounded-lg border border-red-200">
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+            {ar
+              ? `تحذير: الظروف الخارجية ${tempWarning ? "الحرارة مرتفعة جداً" : ""} ${humWarning ? "الرطوبة غير مناسبة" : ""} - تأكد من ضبط الماكينة`
+              : `Warning: Outdoor conditions ${tempWarning ? "extreme temperature" : ""} ${humWarning ? "unsuitable humidity" : ""} - check machine settings`}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 // ── Real-Time Incubation Tracker ────────────────────────────────────────────
-// Updates every 60 seconds.
-// TIME SOURCE: server clock (fetched via /api/server-time on mount).
-//   clockOffset = serverTimestamp − deviceTimestamp (milliseconds).
-//   All "now" calculations use:  Date.now() + clockOffset
-//   If the server-time fetch fails, offset stays 0 (device time fallback).
-// Formula: Progress = (serverNow - startDateTime) / 21d × 100
 const BASE_URL_TRACKER = import.meta.env.BASE_URL ?? "/";
 
 function HatchingLiveTracker({ cycle, ar }: { cycle: any; ar: boolean }) {
@@ -411,6 +503,185 @@ function CycleForm({ initial, onSubmit, onClose }: { initial?: any; onSubmit: (d
   );
 }
 
+function CycleCard({ cycle, machine, ar, t, STATUS_LABELS, STATUS_COLORS, lang, isAdmin, onEdit, onDelete }: {
+  cycle: any; machine: any; ar: boolean; t: any; STATUS_LABELS: Record<string,string>; STATUS_COLORS: Record<string,string>; lang: string; isAdmin: boolean; onEdit: () => void; onDelete: () => void;
+}) {
+  const hatchRate = cycle.eggsHatched != null ? Math.round((cycle.eggsHatched / cycle.eggsSet) * 100) : null;
+  const isActive = cycle.status === "incubating" || cycle.status === "hatching";
+  const occupancy = machine ? Math.round((cycle.eggsSet / machine.capacity) * 100) : 0;
+
+  const startDateTime = cycle.startDate
+    ? new Date(`${cycle.startDate}T${cycle.setTime ?? "00:00"}:00`)
+    : null;
+  const expectedDate = cycle.expectedHatchDate ? new Date(cycle.expectedHatchDate) : null;
+
+  let daysElapsed = 0;
+  let hoursElapsed = 0;
+  if (startDateTime && isActive) {
+    const now = new Date();
+    const elapsed = now.getTime() - startDateTime.getTime();
+    daysElapsed = Math.floor(elapsed / 86400000);
+    hoursElapsed = Math.floor((elapsed % 86400000) / 3600000);
+  }
+
+  let daysToHatch = 0;
+  if (expectedDate && isActive) {
+    daysToHatch = Math.max(0, Math.ceil((expectedDate.getTime() - Date.now()) / 86400000));
+  }
+
+  const expectedChicks = cycle.eggsSet ? Math.round(cycle.eggsSet * 0.72) : 0;
+  const costPerEgg = 500;
+  const totalCost = cycle.eggsSet * costPerEgg;
+  const expectedRevenue = expectedChicks * 1500;
+
+  return (
+    <Card className={`border-border/60 hover:shadow-md transition-all duration-200 ${isActive ? "ring-1 ring-primary/20" : ""}`}>
+      <CardContent className="p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex-1 space-y-3">
+            {/* Header */}
+            <div className="flex items-center gap-3 flex-wrap">
+              <h3 className="font-semibold text-base">{cycle.batchName}</h3>
+              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[cycle.status]}`}>
+                {STATUS_LABELS[cycle.status]}
+              </span>
+              {machine && (
+                <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-violet-100 text-violet-700 flex items-center gap-1">
+                  <Box className="w-3 h-3" />
+                  {machine.name}
+                </span>
+              )}
+            </div>
+
+            {/* Stats grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div className="bg-slate-50 rounded-lg px-3 py-2 border border-slate-100 text-center">
+                <p className="text-lg font-bold text-slate-800">{cycle.eggsSet}</p>
+                <p className="text-[10px] text-muted-foreground">{ar ? "بيضة" : "Ägg"}</p>
+              </div>
+              {cycle.eggsHatched != null ? (
+                <div className="bg-emerald-50 rounded-lg px-3 py-2 border border-emerald-100 text-center">
+                  <p className="text-lg font-bold text-emerald-700">{cycle.eggsHatched}</p>
+                  <p className="text-[10px] text-muted-foreground">{ar ? "صوص فقس" : "Kläckta"}</p>
+                </div>
+              ) : (
+                <div className="bg-blue-50 rounded-lg px-3 py-2 border border-blue-100 text-center">
+                  <p className="text-lg font-bold text-blue-700">~{expectedChicks}</p>
+                  <p className="text-[10px] text-muted-foreground">{ar ? "صوص متوقع" : "Förväntat"}</p>
+                </div>
+              )}
+              {hatchRate != null ? (
+                <div className={`rounded-lg px-3 py-2 border text-center ${hatchRate >= 75 ? "bg-emerald-50 border-emerald-100" : hatchRate >= 40 ? "bg-amber-50 border-amber-100" : "bg-red-50 border-red-100"}`}>
+                  <p className={`text-lg font-bold ${hatchRate >= 75 ? "text-emerald-700" : hatchRate >= 40 ? "text-amber-700" : "text-red-700"}`}>{hatchRate}%</p>
+                  <p className="text-[10px] text-muted-foreground">{ar ? "نسبة الفقس" : "Kläckningsgrad"}</p>
+                </div>
+              ) : machine ? (
+                <div className="bg-violet-50 rounded-lg px-3 py-2 border border-violet-100 text-center">
+                  <p className="text-lg font-bold text-violet-700">{occupancy}%</p>
+                  <p className="text-[10px] text-muted-foreground">{ar ? "نسبة الإشغال" : "Beläggning"}</p>
+                </div>
+              ) : null}
+              {isActive ? (
+                <div className="bg-orange-50 rounded-lg px-3 py-2 border border-orange-100 text-center">
+                  <p className="text-lg font-bold text-orange-700">{daysToHatch}</p>
+                  <p className="text-[10px] text-muted-foreground">{ar ? "يوم للفقس" : "Dagar kvar"}</p>
+                </div>
+              ) : (
+                <div className="bg-slate-50 rounded-lg px-3 py-2 border border-slate-100 text-center">
+                  <p className="text-lg font-bold text-slate-700">{cycle.actualHatchDate || "—"}</p>
+                  <p className="text-[10px] text-muted-foreground">{ar ? "تاريخ الفقس" : "Kläckdatum"}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Machine info for active */}
+            {isActive && machine && (
+              <div className="bg-violet-50/60 rounded-lg px-3 py-2 border border-violet-100">
+                <div className="flex flex-wrap items-center gap-4 text-xs">
+                  <span className="font-medium text-violet-700 flex items-center gap-1"><Box className="w-3.5 h-3.5" />{machine.name}</span>
+                  <span className="text-muted-foreground">{ar ? "السعة:" : "Kapacitet:"} {machine.capacity}</span>
+                  <span className="text-muted-foreground">{ar ? "المستخدم:" : "Används:"} {cycle.eggsSet}/{machine.capacity} ({occupancy}%)</span>
+                  <span className="text-muted-foreground">{ar ? "العمر:" : "Ålder:"} {daysElapsed} {ar ? "يوم" : "dag"} {hoursElapsed} {ar ? "ساعة" : "tim"}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Phase info */}
+            <div className="flex flex-wrap gap-3 bg-blue-50/60 rounded-lg px-3 py-2 border border-blue-100">
+              <span className="text-xs font-medium text-blue-700">{t("hatching.phase1.label")}</span>
+              <span className="text-xs text-muted-foreground flex items-center gap-1">
+                {cycle.startDate}
+                {cycle.setTime && <span className="flex items-center gap-0.5 mx-1"><Clock className="w-3 h-3" />{cycle.setTime}</span>}
+              </span>
+              {cycle.temperature != null && (
+                <span className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Thermometer className="w-3 h-3" />{cycle.temperature}°C
+                </span>
+              )}
+              {cycle.humidity != null && (
+                <span className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Droplets className="w-3 h-3" />{cycle.humidity}%
+                </span>
+              )}
+            </div>
+
+            <div className="flex flex-wrap gap-3 bg-amber-50/60 rounded-lg px-3 py-2 border border-amber-100">
+              <span className="text-xs font-medium text-amber-700">{t("hatching.phase2.label")}</span>
+              {cycle.lockdownDate ? (
+                <span className="text-xs text-muted-foreground flex items-center gap-1">
+                  {cycle.lockdownDate}
+                  {cycle.lockdownTime && <span className="flex items-center gap-0.5 mx-1"><Clock className="w-3 h-3" />{cycle.lockdownTime}</span>}
+                </span>
+              ) : (
+                <span className="text-xs text-muted-foreground/50">{t("hatching.notTransferred")}</span>
+              )}
+              {cycle.lockdownTemperature != null && (
+                <span className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Thermometer className="w-3 h-3" />{cycle.lockdownTemperature}°C
+                </span>
+              )}
+              {cycle.lockdownHumidity != null && (
+                <span className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Droplets className="w-3 h-3" />{cycle.lockdownHumidity}%
+                </span>
+              )}
+              <span className="text-xs text-muted-foreground">{t("hatching.expected")} {cycle.expectedHatchDate}</span>
+              {cycle.actualHatchDate && <span className="text-xs text-emerald-600">{t("hatching.actual")} {cycle.actualHatchDate}</span>}
+            </div>
+
+            {/* Live tracker */}
+            {isActive && <HatchingLiveTracker cycle={cycle} ar={ar} />}
+
+            {/* Hatch rate bar */}
+            {cycle.status === "completed" && hatchRate != null && (
+              <div className="flex items-center gap-2">
+                <div className="flex-1 h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${hatchRate >= 75 ? "bg-emerald-500" : hatchRate >= 40 ? "bg-amber-400" : "bg-red-400"}`}
+                    style={{ width: `${Math.min(hatchRate, 100)}%` }}
+                  />
+                </div>
+                <span className={`text-xs font-bold w-10 text-left ${hatchRate >= 75 ? "text-emerald-600" : hatchRate >= 40 ? "text-amber-600" : "text-red-500"}`}>{hatchRate}%</span>
+              </div>
+            )}
+
+            {cycle.notes && (
+              <p className="text-xs text-muted-foreground bg-muted/30 rounded p-2">{cycle.notes}</p>
+            )}
+          </div>
+
+          {isAdmin && (
+            <div className="flex gap-2 shrink-0">
+              <Button size="sm" variant="outline" onClick={onEdit}><Pencil className="w-3.5 h-3.5" /></Button>
+              <Button size="sm" variant="destructive" onClick={onDelete}><Trash2 className="w-3.5 h-3.5" /></Button>
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function Hatching() {
   const { data: cycles, isLoading } = useListHatchingCycles({ query: { queryKey: getListHatchingCyclesQueryKey() } });
   const createCycle = useCreateHatchingCycle();
@@ -420,9 +691,25 @@ export default function Hatching() {
   const { toast } = useToast();
   const { isAdmin } = useAuth();
   const { t, lang } = useLanguage();
+  const ar = lang === "ar";
   const [open, setOpen] = useState(false);
   const [editItem, setEditItem] = useState<any>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
+  const [filterMachine, setFilterMachine] = useState<string>("all");
+
+  const { data: incubators = [] } = useQuery<any[]>({
+    queryKey: ["incubators"],
+    queryFn: async () => {
+      const res = await fetch(apiPath("/incubators"), { credentials: "include" });
+      return res.ok ? res.json() : [];
+    },
+  });
+
+  const incubatorMap = useMemo(() => {
+    const map = new Map<number, any>();
+    incubators.forEach((inc: any) => map.set(inc.id, inc));
+    return map;
+  }, [incubators]);
 
   const STATUS_LABELS: Record<string, string> = {
     incubating: t("status.incubating"), hatching: t("status.hatching"),
@@ -432,6 +719,12 @@ export default function Hatching() {
     incubating: "bg-blue-100 text-blue-700", hatching: "bg-amber-100 text-amber-700",
     completed: "bg-emerald-100 text-emerald-700", failed: "bg-red-100 text-red-700",
   };
+
+  const activeCycles = useMemo(() => cycles?.filter((c: any) => c.status === "incubating" || c.status === "hatching") || [], [cycles]);
+  const completedCycles = useMemo(() => cycles?.filter((c: any) => c.status === "completed" || c.status === "failed") || [], [cycles]);
+
+  const filteredActive = filterMachine === "all" ? activeCycles : activeCycles.filter((c: any) => String(c.incubatorId) === filterMachine);
+  const filteredCompleted = filterMachine === "all" ? completedCycles : completedCycles.filter((c: any) => String(c.incubatorId) === filterMachine);
 
   const refresh = () => qc.invalidateQueries({ queryKey: getListHatchingCyclesQueryKey() });
 
@@ -479,18 +772,70 @@ export default function Hatching() {
         )}
       </div>
 
-      <div className="flex flex-wrap gap-3 text-xs">
-        <div className="flex items-center gap-1.5 bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg border border-blue-200">
-          <Thermometer className="w-3.5 h-3.5" />
-          {t("hatching.legend.incubation")}
-        </div>
-        <div className="flex items-center gap-1.5 bg-amber-50 text-amber-700 px-3 py-1.5 rounded-lg border border-amber-200">
-          <ArrowLeftRight className="w-3.5 h-3.5" />
-          {t("hatching.legend.lockdown")}
+      {/* Weather Widget */}
+      <MosulWeatherWidget ar={ar} />
+
+      {/* Machine filter + summary */}
+      <div className="flex flex-wrap items-center gap-3">
+        <button
+          onClick={() => setFilterMachine("all")}
+          className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${filterMachine === "all" ? "bg-primary text-white border-primary" : "bg-muted/50 text-muted-foreground border-border hover:bg-muted"}`}
+        >
+          {ar ? "جميع الماكينات" : "Alla maskiner"}
+        </button>
+        {incubators.map((inc: any) => (
+          <button
+            key={inc.id}
+            onClick={() => setFilterMachine(String(inc.id))}
+            className={`text-xs px-3 py-1.5 rounded-lg border transition-colors flex items-center gap-1.5 ${filterMachine === String(inc.id) ? "bg-primary text-white border-primary" : "bg-muted/50 text-muted-foreground border-border hover:bg-muted"}`}
+          >
+            <Box className="w-3 h-3" />
+            {inc.name}
+            <span className="opacity-70">({inc.capacity})</span>
+          </button>
+        ))}
+
+        <div className="flex flex-wrap gap-2 text-xs ms-auto">
+          <div className="flex items-center gap-1.5 bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg border border-blue-200">
+            <Thermometer className="w-3.5 h-3.5" />
+            {t("hatching.legend.incubation")}
+          </div>
+          <div className="flex items-center gap-1.5 bg-amber-50 text-amber-700 px-3 py-1.5 rounded-lg border border-amber-200">
+            <ArrowLeftRight className="w-3.5 h-3.5" />
+            {t("hatching.legend.lockdown")}
+          </div>
         </div>
       </div>
 
       {!isLoading && cycles && cycles.length > 0 && <HatchingAnalysis cycles={cycles} />}
+
+      {/* Active cycles section */}
+      {filteredActive.length > 0 && (
+        <div className="space-y-3">
+          <h2 className="text-sm font-bold text-primary flex items-center gap-1.5">
+            <Egg className="w-4 h-4" />
+            {ar ? `فقسات نشطة (${filteredActive.length})` : `Aktiva cykler (${filteredActive.length})`}
+          </h2>
+          {filteredActive.map((cycle: any) => {
+            const machine = incubatorMap.get(cycle.incubatorId);
+            return <CycleCard key={cycle.id} cycle={cycle} machine={machine} ar={ar} t={t} STATUS_LABELS={STATUS_LABELS} STATUS_COLORS={STATUS_COLORS} lang={lang} isAdmin={isAdmin} onEdit={() => setEditItem(cycle)} onDelete={() => setDeleteId(cycle.id)} />;
+          })}
+        </div>
+      )}
+
+      {/* Completed cycles section */}
+      {filteredCompleted.length > 0 && (
+        <div className="space-y-3">
+          <h2 className="text-sm font-bold text-muted-foreground flex items-center gap-1.5">
+            <CheckCircle2 className="w-4 h-4" />
+            {ar ? `فقسات مكتملة (${filteredCompleted.length})` : `Slutförda cykler (${filteredCompleted.length})`}
+          </h2>
+          {filteredCompleted.map((cycle: any) => {
+            const machine = incubatorMap.get(cycle.incubatorId);
+            return <CycleCard key={cycle.id} cycle={cycle} machine={machine} ar={ar} t={t} STATUS_LABELS={STATUS_LABELS} STATUS_COLORS={STATUS_COLORS} lang={lang} isAdmin={isAdmin} onEdit={() => setEditItem(cycle)} onDelete={() => setDeleteId(cycle.id)} />;
+          })}
+        </div>
+      )}
 
       {isLoading ? (
         <div className="space-y-3">{[1, 2, 3].map(i => <Card key={i}><CardContent className="p-6"><Skeleton className="h-24 w-full" /></CardContent></Card>)}</div>
@@ -502,101 +847,7 @@ export default function Hatching() {
             <p className="text-muted-foreground text-sm">{t("hatching.noBatches.desc")}</p>
           </CardContent>
         </Card>
-      ) : (
-        <div className="space-y-3">
-          {cycles?.map(cycle => {
-            const hatchRate = cycle.eggsHatched != null ? Math.round((cycle.eggsHatched / cycle.eggsSet) * 100) : null;
-            return (
-              <Card key={cycle.id} className="border-border/60 hover:shadow-md transition-all duration-200">
-                <CardContent className="p-5">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1 space-y-3">
-                      <div className="flex items-center gap-3 flex-wrap">
-                        <h3 className="font-semibold">{cycle.batchName}</h3>
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[cycle.status]}`}>
-                          {STATUS_LABELS[cycle.status]}
-                        </span>
-                        <span className="text-xs text-muted-foreground flex items-center gap-1">
-                          <Egg className="w-3.5 h-3.5" />
-                          {cycle.eggsSet} {t("hatching.egg")} {cycle.eggsHatched != null && `← ${cycle.eggsHatched} ${t("hatching.hatched")} (${hatchRate}%)`}
-                        </span>
-                      </div>
-                      {cycle.status === "completed" && hatchRate != null && (
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
-                            <div
-                              className={`h-full rounded-full transition-all duration-500 ${hatchRate >= 75 ? "bg-emerald-500" : hatchRate >= 40 ? "bg-amber-400" : "bg-red-400"}`}
-                              style={{ width: `${Math.min(hatchRate, 100)}%` }}
-                            />
-                          </div>
-                          <span className={`text-xs font-bold w-10 text-left ${hatchRate >= 75 ? "text-emerald-600" : hatchRate >= 40 ? "text-amber-600" : "text-red-500"}`}>{hatchRate}%</span>
-                        </div>
-                      )}
-
-                      <div className="flex flex-wrap gap-3 bg-blue-50/60 rounded-lg px-3 py-2 border border-blue-100">
-                        <span className="text-xs font-medium text-blue-700">{t("hatching.phase1.label")}</span>
-                        <span className="text-xs text-muted-foreground flex items-center gap-1">
-                          📅 {cycle.startDate}
-                          {cycle.setTime && <span className="flex items-center gap-0.5 mx-1"><Clock className="w-3 h-3" />{cycle.setTime}</span>}
-                        </span>
-                        {cycle.temperature != null && (
-                          <span className="text-xs text-muted-foreground flex items-center gap-1">
-                            <Thermometer className="w-3 h-3" />{cycle.temperature}°C
-                          </span>
-                        )}
-                        {cycle.humidity != null && (
-                          <span className="text-xs text-muted-foreground flex items-center gap-1">
-                            <Droplets className="w-3 h-3" />{cycle.humidity}%
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="flex flex-wrap gap-3 bg-amber-50/60 rounded-lg px-3 py-2 border border-amber-100">
-                        <span className="text-xs font-medium text-amber-700">{t("hatching.phase2.label")}</span>
-                        {cycle.lockdownDate ? (
-                          <span className="text-xs text-muted-foreground flex items-center gap-1">
-                            📅 {cycle.lockdownDate}
-                            {cycle.lockdownTime && <span className="flex items-center gap-0.5 mx-1"><Clock className="w-3 h-3" />{cycle.lockdownTime}</span>}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-muted-foreground/50">{t("hatching.notTransferred")}</span>
-                        )}
-                        {cycle.lockdownTemperature != null && (
-                          <span className="text-xs text-muted-foreground flex items-center gap-1">
-                            <Thermometer className="w-3 h-3" />{cycle.lockdownTemperature}°C
-                          </span>
-                        )}
-                        {cycle.lockdownHumidity != null && (
-                          <span className="text-xs text-muted-foreground flex items-center gap-1">
-                            <Droplets className="w-3 h-3" />{cycle.lockdownHumidity}%
-                          </span>
-                        )}
-                        <span className="text-xs text-muted-foreground">{t("hatching.expected")} {cycle.expectedHatchDate}</span>
-                        {cycle.actualHatchDate && <span className="text-xs text-emerald-600">{t("hatching.actual")} {cycle.actualHatchDate}</span>}
-                      </div>
-
-                      {(cycle.status === "incubating" || cycle.status === "hatching") && (
-                        <HatchingLiveTracker cycle={cycle} ar={lang === "ar"} />
-                      )}
-
-                      {cycle.notes && (
-                        <p className="text-xs text-muted-foreground bg-muted/30 rounded p-2">{cycle.notes}</p>
-                      )}
-                    </div>
-
-                    {isAdmin && (
-                    <div className="flex gap-2 shrink-0">
-                      <Button size="sm" variant="outline" onClick={() => setEditItem(cycle)}><Pencil className="w-3.5 h-3.5" /></Button>
-                      <Button size="sm" variant="destructive" onClick={() => setDeleteId(cycle.id)}><Trash2 className="w-3.5 h-3.5" /></Button>
-                    </div>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      )}
+      ) : null}
 
       <Dialog open={!!editItem} onOpenChange={v => !v && setEditItem(null)}>
         <DialogContent className="max-w-lg">
