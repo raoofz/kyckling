@@ -93,9 +93,13 @@ app.use(express.urlencoded({ extended: true }));
 
 // ── Session ───────────────────────────────────────────────────────────────────
 const PgStore = connectPgSimple(session);
+const sessionStore = new PgStore({ pool, createTableIfMissing: true, tableName: "session" });
+sessionStore.on("error", (err: Error) => {
+  logger.error({ err }, "Session store error");
+});
 app.use(
   session({
-    store: new PgStore({ pool, createTableIfMissing: true, tableName: "session" }),
+    store: sessionStore,
     secret: resolvedSecret,
     resave: false,
     saveUninitialized: false,
@@ -128,6 +132,25 @@ ensureDbConnection()
   .then(() => runMigrations())
   .then(() => seedUsers())
   .catch(err => logger.error({ err }, "DB init failed"));
+
+// ── DB Debug (TEMPORARY) ─────────────────────────────────────────────────────
+app.get("/api/debug-db", async (_req, res) => {
+  const info: Record<string, unknown> = {};
+  info.hasDbUrl = !!process.env.DATABASE_URL;
+  info.dbUrlPrefix = process.env.DATABASE_URL?.slice(0, 40) + "...";
+  info.dbUrlSuffix = "..." + process.env.DATABASE_URL?.slice(-30);
+  info.nodeEnv = process.env.NODE_ENV;
+  try {
+    const r = await pool.query("SELECT 1 AS ok");
+    info.dbConnection = "OK";
+    info.dbResult = r.rows[0];
+  } catch (err: any) {
+    info.dbConnection = "FAILED";
+    info.dbError = err.message;
+    info.dbErrorCode = err.code;
+  }
+  res.json(info);
+});
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 app.use("/api", router);
