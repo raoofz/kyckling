@@ -10,9 +10,10 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
+const connectionString = process.env.DATABASE_URL.replace(/^\uFEFF/, "").trim();
 const isProd = process.env.NODE_ENV === "production";
 export const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString,
   ssl: isProd ? { rejectUnauthorized: false } : undefined,
 });
 export const db = drizzle(pool, { schema });
