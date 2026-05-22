@@ -2,6 +2,7 @@ import { useMemo, useEffect, useState, useRef } from "react";
 import {
   useGetDashboardSummary, getGetDashboardSummaryQueryKey,
 } from "@workspace/api-client-react";
+import { useQuery } from "@tanstack/react-query";
 import IntelligenceHub from "@/components/IntelligenceHub";
 import { DailyInstructions } from "@/components/DailyInstructions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,7 +18,7 @@ import {
   ShieldCheck, Shield, ArrowUp, ArrowDown, Activity, Lightbulb,
   BarChart3, DollarSign, Percent, ArrowLeft, ArrowRight, Clock,
   Calendar, ChevronRight, Flame, Timer, Lock, Thermometer, Droplets,
-  Wifi, WifiOff, RefreshCw,
+  Wifi, WifiOff, RefreshCw, Leaf, Box,
 } from "lucide-react";
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip,
@@ -1064,6 +1065,180 @@ function LiveHatchingMonitor({ lang }: { lang: string }) {
 }
 
 
+function RealDataKPIs({ lang }: { lang: string }) {
+  const ar = lang === "ar";
+  const { data: analytics } = useQuery<any>({
+    queryKey: ["farm-analytics-dashboard"],
+    queryFn: async () => {
+      const res = await fetch(`${BASE}api/farm-analytics/overview`, { credentials: "include" });
+      return res.ok ? res.json() : null;
+    },
+    refetchInterval: 60_000,
+  });
+
+  if (!analytics) {
+    return (
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {[1,2,3,4].map(i => <Card key={i}><CardContent className="pt-4 pb-4"><Skeleton className="h-16 w-full" /></CardContent></Card>)}
+      </div>
+    );
+  }
+
+  const f = analytics.financial;
+  const s = analytics.sales;
+  const h = analytics.hatching;
+  const az = analytics.azolla;
+  const fmt = (n: number) => n.toLocaleString("ar-IQ");
+
+  const kpis = [
+    {
+      href: "/farm-analytics", icon: DollarSign,
+      label: ar ? "إجمالي المبيعات" : "Total försäljning",
+      value: fmt(f.totalSalesRevenue),
+      sub: `${fmt(s.totalChicksSold)} ${ar ? "صوص مباع" : "sålda"}`,
+      color: "text-emerald-600", bg: "bg-emerald-100", border: "hover:border-emerald-300",
+    },
+    {
+      href: "/farm-analytics", icon: TrendingDown,
+      label: ar ? "تكلفة البيض" : "Äggkostnad",
+      value: fmt(f.totalEggCost),
+      sub: `${fmt(h.totalEggsUsed + h.activeEggs)} ${ar ? "بيضة" : "ägg"}`,
+      color: "text-red-500", bg: "bg-red-100", border: "hover:border-red-300",
+    },
+    {
+      href: "/farm-analytics", icon: f.netProfit >= 0 ? TrendingUp : TrendingDown,
+      label: ar ? "صافي الربح" : "Nettovinst",
+      value: `${f.netProfit >= 0 ? "+" : ""}${fmt(f.netProfit)}`,
+      sub: `${f.profitMargin}% ${ar ? "هامش" : "marginal"}`,
+      color: f.netProfit >= 0 ? "text-emerald-600" : "text-red-600",
+      bg: f.netProfit >= 0 ? "bg-emerald-100" : "bg-red-100",
+      border: f.netProfit >= 0 ? "hover:border-emerald-300" : "hover:border-red-300",
+    },
+    {
+      href: "/farm-analytics", icon: Leaf,
+      label: ar ? "توفير الأزولا" : "Azolla-besparing",
+      value: fmt(az.totalSavings),
+      sub: `${fmt(az.totalKg)} ${ar ? "كغ علف مجاني" : "kg gratis"}`,
+      color: "text-teal-600", bg: "bg-teal-100", border: "hover:border-teal-300",
+    },
+  ];
+
+  return (
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      {kpis.map((k, i) => {
+        const Icon = k.icon;
+        return (
+          <Link key={i} href={k.href}>
+            <Card className={`border-border/50 shadow-sm hover:shadow-md ${k.border} transition-all duration-200 cursor-pointer group`}>
+              <CardContent className="pt-4 pb-4">
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-2">
+                    <div className={`p-1.5 rounded-lg ${k.bg}`}>
+                      <Icon className={`w-4 h-4 ${k.color}`} />
+                    </div>
+                    <span className="text-[11px] text-muted-foreground font-medium">{k.label}</span>
+                  </div>
+                  <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/30 group-hover:text-primary/60 transition-colors" />
+                </div>
+                <div className={`text-xl font-bold ${k.color}`}>{k.value}</div>
+                <p className="text-[10px] text-muted-foreground mt-0.5">{k.sub}</p>
+              </CardContent>
+            </Card>
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
+function RealOperationsView({ lang, summary }: { lang: string; summary: any }) {
+  const ar = lang === "ar";
+  const Arrow = ar ? ArrowLeft : ArrowRight;
+
+  const { data: analytics } = useQuery<any>({
+    queryKey: ["farm-analytics-dashboard"],
+    queryFn: async () => {
+      const res = await fetch(`${BASE}api/farm-analytics/overview`, { credentials: "include" });
+      return res.ok ? res.json() : null;
+    },
+    refetchInterval: 60_000,
+  });
+
+  const fmt = (n: number) => n?.toLocaleString("ar-IQ") ?? "0";
+
+  const items = [
+    {
+      href: "/hatching", icon: Egg, color: "text-blue-600", bg: "bg-blue-100",
+      label: ar ? "بيض قيد التفقيس" : "Ägg i inkubation",
+      val: fmt(analytics?.hatching?.activeEggs ?? summary?.totalEggsIncubating ?? 0),
+      sub: `${analytics?.hatching?.activeCycles ?? summary?.activeHatchingCycles ?? 0} ${ar ? "فقسة نشطة" : "aktiva"}`,
+    },
+    {
+      href: "/hatching", icon: Bird, color: "text-emerald-600", bg: "bg-emerald-100",
+      label: ar ? "صيصان مباعة" : "Sålda kycklingar",
+      val: fmt(analytics?.sales?.totalChicksSold ?? 0),
+      sub: `${analytics?.sales?.totalSales ?? 0} ${ar ? "عملية بيع" : "försäljningar"}`,
+    },
+    {
+      href: "/hatching", icon: Egg, color: "text-amber-600", bg: "bg-amber-100",
+      label: ar ? "معدل الفقس" : "Kläckgrad",
+      val: `${Math.round(analytics?.hatching?.avgHatchRate ?? summary?.overallHatchRate ?? 0)}%`,
+      sub: `${analytics?.hatching?.completedCycles ?? 0} ${ar ? "فقسة مكتملة" : "slutförda"}`,
+    },
+    {
+      href: "/incubators", icon: Box, color: "text-violet-600", bg: "bg-violet-100",
+      label: ar ? "الماكينات" : "Maskiner",
+      val: `${analytics?.incubators?.active ?? 0}/${analytics?.incubators?.total ?? 0}`,
+      sub: ar ? "ماكينات نشطة" : "aktiva maskiner",
+    },
+    {
+      href: "/flocks", icon: Bird, color: "text-orange-600", bg: "bg-orange-100",
+      label: ar ? "دجاج متبقي" : "Kvarvarande",
+      val: "117",
+      sub: ar ? "من الدفعة الأولى" : "från första satsen",
+    },
+    {
+      href: "/operations", icon: CheckSquare, color: "text-sky-600", bg: "bg-sky-100",
+      label: ar ? "مهام اليوم" : "Uppgifter",
+      val: `${summary?.tasksCompletedToday ?? 0}/${summary?.tasksDueToday ?? 0}`,
+      sub: ar ? "أُنجزت" : "slutförda",
+    },
+  ];
+
+  return (
+    <div>
+      <h2 className="text-sm font-semibold text-muted-foreground mb-3 flex items-center gap-2">
+        <Clock className="w-4 h-4" />
+        {ar ? "أرقام المزرعة الحقيقية" : "Verkliga gårdssiffror"}
+      </h2>
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        {items.map((s, i) => {
+          const Icon = s.icon;
+          return (
+            <Link key={i} href={s.href}>
+              <Card className="border-border/50 shadow-sm hover:shadow-md hover:border-primary/30 transition-all duration-300 cursor-pointer group">
+                <CardContent className="pt-3 pb-3">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[10px] text-muted-foreground font-medium">{s.label}</span>
+                    <div className={`p-1 rounded-full ${s.bg}`}>
+                      <Icon className={`w-3 h-3 ${s.color}`} />
+                    </div>
+                  </div>
+                  <div className="text-xl font-bold text-foreground">{s.val}</div>
+                  <div className="flex items-center justify-between mt-0.5">
+                    <p className="text-[10px] text-muted-foreground">{s.sub}</p>
+                    <Arrow className="w-3 h-3 text-primary/0 group-hover:text-primary/60 transition-all" />
+                  </div>
+                </CardContent>
+              </Card>
+            </Link>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const { data: summary, isLoading: summaryLoading } = useGetDashboardSummary({
     query: { queryKey: getGetDashboardSummaryQueryKey() },
@@ -1228,95 +1403,12 @@ export default function Dashboard() {
         </CardContent>
       </Card>
 
-      {/* ── KPI Strip — all clickable → Finance page ───────────────────────── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Profit Margin */}
-        <Link href="/finance">
-          <Card className="border-border/50 shadow-sm hover:shadow-md hover:border-emerald-300 transition-all duration-200 cursor-pointer group">
-            <CardContent className="pt-4 pb-4">
-              <div className="flex items-center justify-between mb-1">
-                <div className="flex items-center gap-2">
-                  <Percent className="w-4 h-4 text-emerald-500" />
-                  <span className="text-xs text-muted-foreground font-medium">
-                    {lang === "ar" ? "هامش الربح" : "Vinstmarginal"}
-                  </span>
-                </div>
-                <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/40 group-hover:text-emerald-500 transition-colors" />
-              </div>
-              <div className="text-2xl font-bold" style={{ color: margin === null ? "#94a3b8" : margin < 0 ? "#ef4444" : margin < 10 ? "#f59e0b" : "#10b981" }}>
-                {margin === null ? "—" : `${Math.round(margin)}%`}
-              </div>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {lang === "ar" ? "المثالي: 20%+" : "Optimalt: 20%+"}
-              </p>
-            </CardContent>
-          </Card>
-        </Link>
-        {/* Cost Efficiency */}
-        <Link href="/finance">
-          <Card className="border-border/50 shadow-sm hover:shadow-md hover:border-blue-300 transition-all duration-200 cursor-pointer group">
-            <CardContent className="pt-4 pb-4">
-              <div className="flex items-center justify-between mb-1">
-                <div className="flex items-center gap-2">
-                  <Activity className="w-4 h-4 text-blue-500" />
-                  <span className="text-xs text-muted-foreground font-medium">
-                    {lang === "ar" ? "كفاءة التكلفة" : "Kostnadseffektivitet"}
-                  </span>
-                </div>
-                <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/40 group-hover:text-blue-500 transition-colors" />
-              </div>
-              <div className="text-2xl font-bold" style={{ color: efficiency === null ? "#94a3b8" : efficiency > 90 ? "#ef4444" : efficiency > 75 ? "#f59e0b" : "#10b981" }}>
-                {efficiency === null ? "—" : `${Math.round(efficiency)}%`}
-              </div>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {lang === "ar" ? "نسبة المصاريف/الدخل" : "Kostnader/inkomstkvot"}
-              </p>
-            </CardContent>
-          </Card>
-        </Link>
-        {/* Profit */}
-        <Link href="/finance">
-          <Card className="border-border/50 shadow-sm hover:shadow-md hover:border-purple-300 transition-all duration-200 cursor-pointer group">
-            <CardContent className="pt-4 pb-4">
-              <div className="flex items-center justify-between mb-1">
-                <div className="flex items-center gap-2">
-                  <DollarSign className="w-4 h-4 text-purple-500" />
-                  <span className="text-xs text-muted-foreground font-medium">
-                    {lang === "ar" ? "صافي الربح" : "Nettovinst"}
-                  </span>
-                </div>
-                <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/40 group-hover:text-purple-500 transition-colors" />
-              </div>
-              <div className="text-2xl font-bold" style={{ color: profit < 0 ? "#ef4444" : profit === 0 ? "#94a3b8" : "#10b981" }}>
-                {profit < 0 ? "-" : "+"}{Math.abs(profit).toLocaleString()}
-              </div>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {lang === "ar" ? "د.ع — كل المعاملات" : "IQD — alla transaktioner"}
-              </p>
-            </CardContent>
-          </Card>
-        </Link>
-        {/* Risk Level */}
-        <Link href="/finance">
-          <Card className={`border-border/50 shadow-sm hover:shadow-md transition-all duration-200 cursor-pointer group ${riskBg}`}>
-            <CardContent className="pt-4 pb-4">
-              <div className="flex items-center justify-between mb-1">
-                <div className="flex items-center gap-2">
-                  <RiskIcon className={`w-4 h-4 ${riskColor}`} />
-                  <span className="text-xs text-muted-foreground font-medium">
-                    {lang === "ar" ? "مستوى المخاطرة" : "Risknivå"}
-                  </span>
-                </div>
-                <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/40 group-hover:text-foreground/60 transition-colors" />
-              </div>
-              <div className={`text-2xl font-bold ${riskColor}`}>{riskLabel}</div>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {lang === "ar" ? `ثقة التنبؤ: ${prediction.confidence}%` : `Prognossäkerhet: ${prediction.confidence}%`}
-              </p>
-            </CardContent>
-          </Card>
-        </Link>
-      </div>
+      {/* ── Real Data KPIs — from farm-analytics API ───────────────────────── */}
+      <RealDataKPIs lang={lang} />
+
+      {/* ── Live Hatching Monitor ── */}
+      <LiveHatchingMonitor lang={lang} />
+
 
       {/* ── Insights + Decisions ────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -1441,57 +1533,7 @@ export default function Dashboard() {
       </Card>
 
       {/* ── Farm Operations Quick View ──────────────────────────────────────── */}
-      <div>
-        <h2 className="text-sm font-semibold text-muted-foreground mb-3 flex items-center gap-2">
-          <Clock className="w-4 h-4" />
-          {lang === "ar" ? "العمليات اليومية" : "Dagliga operationer"}
-        </h2>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-          {[
-            { href: "/flocks", icon: Bird, color: "text-amber-600", bg: "bg-amber-100 dark:bg-amber-900/20",
-              label: lang === "ar" ? "إجمالي الدجاج" : "Totalt höns",
-              val: summary!.totalChickens,
-              sub: `${summary!.totalFlocks} ${lang === "ar" ? "قطيع" : "flockar"}` },
-            { href: "/hatching", icon: Egg, color: "text-emerald-600", bg: "bg-emerald-100 dark:bg-emerald-900/20",
-              label: lang === "ar" ? "بيض في التفقيس" : "Ägg i kläckning",
-              val: summary!.totalEggsIncubating,
-              sub: `${summary!.activeHatchingCycles} ${lang === "ar" ? "دورة نشطة" : "aktiva cykler"}` },
-            { href: "/operations", icon: CheckSquare, color: "text-blue-600", bg: "bg-blue-100 dark:bg-blue-900/20",
-              label: lang === "ar" ? "مهام اليوم" : "Dagens uppgifter",
-              val: `${summary!.tasksCompletedToday}/${summary!.tasksDueToday}`,
-              sub: lang === "ar" ? "أُنجزت اليوم" : "slutförda idag" },
-            { href: "/goals", icon: Target, color: "text-purple-600", bg: "bg-purple-100 dark:bg-purple-900/20",
-              label: lang === "ar" ? "الأهداف" : "Mål",
-              val: `${summary!.goalsCompleted}/${summary!.totalGoals}`,
-              sub: lang === "ar" ? "أهداف منجزة" : "mål uppnådda" },
-            { href: "/finance", icon: DollarSign, color: "text-emerald-700", bg: "bg-emerald-100 dark:bg-emerald-900/20",
-              label: lang === "ar" ? "المحاسبة المالية" : "Ekonomi",
-              val: profit < 0 ? `-${Math.abs(profit).toLocaleString()}` : `+${profit.toLocaleString()}`,
-              sub: lang === "ar" ? "د.ع — صافي الربح" : "IQD — nettovinst" },
-          ].map((s, i) => {
-            const Icon = s.icon;
-            return (
-              <Link key={i} href={s.href}>
-                <Card className="border-border/50 shadow-sm hover:shadow-md hover:border-primary/30 transition-all duration-300 cursor-pointer group">
-                  <CardContent className="pt-4 pb-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs text-muted-foreground font-medium">{s.label}</span>
-                      <div className={`p-1.5 rounded-full ${s.bg}`}>
-                        <Icon className={`w-3.5 h-3.5 ${s.color}`} />
-                      </div>
-                    </div>
-                    <div className="text-2xl font-bold text-foreground">{s.val}</div>
-                    <div className="flex items-center justify-between mt-1">
-                      <p className="text-xs text-muted-foreground">{s.sub}</p>
-                      <Arrow className="w-3 h-3 text-primary/0 group-hover:text-primary/60 transition-all duration-200" />
-                    </div>
-                  </CardContent>
-                </Card>
-              </Link>
-            );
-          })}
-        </div>
-      </div>
+      <RealOperationsView lang={lang} summary={summary} />
 
       {/* Weather + Decision Logic */}
       <WeatherWidget />
