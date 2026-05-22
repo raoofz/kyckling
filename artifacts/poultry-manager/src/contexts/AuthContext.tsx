@@ -40,22 +40,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [fetchMe]);
 
   const login = async (username: string, password: string) => {
-    const res = await fetch(apiPath("/auth/login"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ username, password }),
-    });
-    if (!res.ok) {
-      const data = await res.json();
-      throw new Error(data.error ?? "خطأ في تسجيل الدخول");
+    let res: Response;
+    try {
+      res = await fetch(apiPath("/auth/login"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ username, password }),
+      });
+    } catch {
+      throw new Error("خطأ في الاتصال بالخادم. تحقق من اتصالك بالإنترنت");
     }
-    const data = await res.json();
-    setUser(data);
+    if (!res.ok) {
+      let errorMsg = "خطأ في تسجيل الدخول";
+      try {
+        const data = await res.json();
+        errorMsg = data.error ?? errorMsg;
+      } catch { /* response not JSON */ }
+      throw new Error(errorMsg);
+    }
+    try {
+      const data = await res.json();
+      setUser(data);
+    } catch {
+      throw new Error("خطأ في معالجة بيانات الخادم");
+    }
   };
 
   const logout = async () => {
-    await fetch(apiPath("/auth/logout"), { method: "POST", credentials: "include" });
+    try {
+      await fetch(apiPath("/auth/logout"), { method: "POST", credentials: "include" });
+    } catch { /* ignore network errors on logout */ }
     setUser(null);
   };
 

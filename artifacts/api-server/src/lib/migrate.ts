@@ -50,6 +50,8 @@ export async function runMigrations() {
         "notes" TEXT,
         "created_at" TIMESTAMP NOT NULL DEFAULT NOW()
       );
+      CREATE INDEX IF NOT EXISTS "idx_prod_logs_flock_id" ON "flock_production_logs" ("flock_id");
+      CREATE INDEX IF NOT EXISTS "idx_prod_logs_date" ON "flock_production_logs" ("date" DESC);
 
       CREATE TABLE IF NOT EXISTS "flock_health_logs" (
         "id" SERIAL PRIMARY KEY,
@@ -61,6 +63,8 @@ export async function runMigrations() {
         "notes" TEXT,
         "created_at" TIMESTAMP NOT NULL DEFAULT NOW()
       );
+      CREATE INDEX IF NOT EXISTS "idx_health_logs_flock_id" ON "flock_health_logs" ("flock_id");
+      CREATE INDEX IF NOT EXISTS "idx_health_logs_date" ON "flock_health_logs" ("date" DESC);
 
       CREATE TABLE IF NOT EXISTS "hatching_cycles" (
         "id" SERIAL PRIMARY KEY,
@@ -128,6 +132,7 @@ export async function runMigrations() {
         "goal_id" INTEGER,
         "created_at" TIMESTAMP NOT NULL DEFAULT NOW()
       );
+      CREATE INDEX IF NOT EXISTS "idx_daily_notes_date" ON "daily_notes" ("date" DESC);
 
       CREATE TABLE IF NOT EXISTS "transactions" (
         "id" SERIAL PRIMARY KEY,
@@ -146,6 +151,9 @@ export async function runMigrations() {
         "batch_id" INTEGER,
         "created_at" TIMESTAMP NOT NULL DEFAULT NOW()
       );
+      CREATE INDEX IF NOT EXISTS "idx_transactions_date" ON "transactions" ("date" DESC);
+      CREATE INDEX IF NOT EXISTS "idx_transactions_type" ON "transactions" ("type");
+      CREATE INDEX IF NOT EXISTS "idx_transactions_flock_id" ON "transactions" ("flock_id");
 
       CREATE TABLE IF NOT EXISTS "feed_records" (
         "id" SERIAL PRIMARY KEY,
@@ -247,6 +255,8 @@ export async function runMigrations() {
         "notes" TEXT,
         "created_at" TIMESTAMP NOT NULL DEFAULT NOW()
       );
+      CREATE INDEX IF NOT EXISTS "idx_inv_movements_item_id" ON "inventory_movements" ("item_id");
+      CREATE INDEX IF NOT EXISTS "idx_inv_movements_date" ON "inventory_movements" ("date" DESC);
 
       CREATE TABLE IF NOT EXISTS "prediction_logs" (
         "id" SERIAL PRIMARY KEY,
@@ -287,6 +297,8 @@ export async function runMigrations() {
         "analysis_status" TEXT NOT NULL DEFAULT 'pending',
         "created_at" TIMESTAMP NOT NULL DEFAULT NOW()
       );
+      CREATE INDEX IF NOT EXISTS "idx_note_images_date" ON "note_images" ("date" DESC);
+      CREATE INDEX IF NOT EXISTS "idx_note_images_note_id" ON "note_images" ("note_id");
 
       CREATE TABLE IF NOT EXISTS "image_feedback" (
         "id" SERIAL PRIMARY KEY,
@@ -329,13 +341,6 @@ export async function runMigrations() {
         "content" TEXT NOT NULL,
         "created_at" TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
-
-      CREATE TABLE IF NOT EXISTS "sessions" (
-        "sid" VARCHAR PRIMARY KEY,
-        "sess" JSONB NOT NULL,
-        "expire" TIMESTAMP NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS "IDX_sessions_expire" ON "sessions" ("expire");
 
       CREATE TABLE IF NOT EXISTS "auth_users" (
         "id" VARCHAR PRIMARY KEY DEFAULT gen_random_uuid()::text,
@@ -401,11 +406,21 @@ export async function runMigrations() {
         "credit" NUMERIC(14,2) NOT NULL DEFAULT 0,
         "created_at" TIMESTAMP NOT NULL DEFAULT NOW()
       );
+      CREATE INDEX IF NOT EXISTS "idx_jel_entry_id" ON "journal_entry_lines" ("journal_entry_id");
+      CREATE INDEX IF NOT EXISTS "idx_jel_account_id" ON "journal_entry_lines" ("account_id");
+      CREATE INDEX IF NOT EXISTS "idx_je_entry_date" ON "journal_entries" ("entry_date" DESC);
+      CREATE INDEX IF NOT EXISTS "idx_messages_conv_id" ON "messages" ("conversation_id");
+      CREATE INDEX IF NOT EXISTS "idx_feed_alloc_feed_id" ON "feed_record_allocations" ("feed_record_id");
+      CREATE INDEX IF NOT EXISTS "idx_feed_alloc_flock_id" ON "feed_record_allocations" ("flock_id");
+      CREATE INDEX IF NOT EXISTS "idx_payments_invoice_id" ON "payments" ("invoice_id");
+      CREATE INDEX IF NOT EXISTS "idx_hatching_status" ON "hatching_cycles" ("status");
+      CREATE INDEX IF NOT EXISTS "idx_tasks_completed" ON "tasks" ("completed");
     `);
 
     logger.info("All database tables ensured");
   } catch (err) {
     logger.error({ err }, "Migration failed");
+    throw err;
   } finally {
     client.release();
   }

@@ -78,7 +78,7 @@ router.post("/auth/logout", (req, res) => {
   req.session.destroy((err) => {
     if (err) logger.warn({ err, userId }, "Session destroy error");
     if (userId) logger.info({ userId }, "User logged out");
-    res.clearCookie("connect.sid");
+    res.clearCookie("kyckling.sid");
     res.json({ ok: true });
   });
 });

@@ -14,6 +14,10 @@ import { seedUsers } from "./lib/seed";
 import { db, pool } from "@workspace/db";
 import { sql } from "drizzle-orm";
 
+process.on("unhandledRejection", (reason) => {
+  logger.error({ err: reason }, "Unhandled promise rejection");
+});
+
 const __appDir = typeof __dirname !== "undefined"
   ? __dirname
   : path.dirname(fileURLToPath(import.meta.url));
@@ -32,12 +36,13 @@ if (isProd) {
 const sessionSecret = process.env.SESSION_SECRET;
 if (!sessionSecret) {
   if (isProd) {
-    logger.error("SESSION_SECRET environment variable is not set — refusing to start in production");
-    process.exit(1);
+    logger.error("SESSION_SECRET environment variable is not set — using a random secret. Sessions will not persist across cold starts.");
+  } else {
+    logger.warn("[SECURITY WARNING] SESSION_SECRET not set — using insecure dev fallback.");
   }
-  logger.warn("[SECURITY WARNING] SESSION_SECRET not set — using insecure dev fallback. Set it before deploying.");
 }
-const resolvedSecret = sessionSecret ?? "dev-only-insecure-secret-do-not-use-in-prod";
+const resolvedSecret = sessionSecret
+  ?? (isProd ? require("node:crypto").randomBytes(32).toString("hex") : "dev-only-insecure-secret-do-not-use-in-prod");
 
 // ── Helmet ────────────────────────────────────────────────────────────────────
 if (isProd) {
@@ -100,6 +105,7 @@ sessionStore.on("error", (err: Error) => {
 app.use(
   session({
     store: sessionStore,
+    name: "kyckling.sid",
     secret: resolvedSecret,
     resave: false,
     saveUninitialized: false,
@@ -167,6 +173,11 @@ if (isProd) {
 
 // ── Global Error Handler ──────────────────────────────────────────────────────
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  if (res.headersSent) {
+    logger.error({ err }, "Error after headers sent");
+    return;
+  }
+
   if (err && typeof err === "object" && "issues" in err && Array.isArray((err as any).issues)) {
     const issues = (err as any).issues as Array<{ path: string[]; message: string }>;
     const messages = issues.map(e => `${e.path.join(".")}: ${e.message}`).join(", ");
@@ -174,18 +185,23 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     res.status(400).json({ success: false, error: "بيانات غير صحيحة", details: messages });
     return;
   }
+
+  const msg = err instanceof Error ? err.message : String(err);
+  const code = err instanceof Error ? (err as any).code : undefined;
   logger.error({ err }, "Unhandled error");
-  const isDatabaseError =
-    err instanceof Error &&
-    (err.message.includes("endpoint has been disabled") ||
-      err.message.includes("Failed query") ||
-      err.message.includes("ECONNREFUSED") ||
-      err.message.includes("connection"));
+
+  const DB_PATTERNS = [
+    "endpoint has been disabled", "Failed query", "ECONNREFUSED",
+    "ENOTFOUND", "ETIMEDOUT", "connection", "Connection terminated",
+    "too many clients", "remaining connection slots",
+  ];
+  const isDatabaseError = DB_PATTERNS.some(p => msg.includes(p)) ||
+    ["57P01", "57P03", "08006", "08001", "08004"].includes(code);
+
   if (isDatabaseError) {
     res.status(503).json({ success: false, error: "خطأ في الاتصال بقاعدة البيانات. يرجى المحاولة بعد قليل" });
     return;
   }
-  // Never expose stack traces in production
   res.status(500).json({ success: false, error: "حدث خطأ في الخادم. يرجى المحاولة مرة أخرى" });
 });
 
