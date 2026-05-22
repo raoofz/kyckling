@@ -14,7 +14,13 @@ import { seedUsers } from "./lib/seed";
 import { db, pool } from "@workspace/db";
 import { sql } from "drizzle-orm";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const __appDir = (() => {
+  try {
+    return path.dirname(fileURLToPath(import.meta.url));
+  } catch {
+    return typeof __dirname !== "undefined" ? __dirname : process.cwd();
+  }
+})();
 
 const app: Express = express();
 const isProd = process.env.NODE_ENV === "production";
@@ -136,9 +142,9 @@ app.use("/api", router);
 if (isProd) {
   // Try several candidate paths (monorepo vs flat dist layout)
   const candidates = [
-    path.resolve(__dirname, "public"),                             // dist/public (copied by build)
-    path.resolve(__dirname, "../../poultry-manager/dist/public"), // monorepo sibling
-    path.resolve(__dirname, "../public"),                         // flat layout
+    path.resolve(__appDir, "public"),
+    path.resolve(__appDir, "../../poultry-manager/dist/public"),
+    path.resolve(__appDir, "../public"),
   ];
   const staticRoot = candidates.find(p => existsSync(p));
   if (staticRoot) {

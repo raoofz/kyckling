@@ -20,6 +20,11 @@ async function buildVercel() {
       "*.node",
       "sharp",
       "pg-native",
+      "pino",
+      "pino-http",
+      "pino-pretty",
+      "thread-stream",
+      "sonic-boom",
     ],
     sourcemap: false,
     banner: {
