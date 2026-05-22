@@ -8,6 +8,26 @@ globalThis.require = createRequire(import.meta.url);
 const artifactDir = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(artifactDir, "../..");
 
+const sharpNoopPlugin = {
+  name: "sharp-noop",
+  setup(build) {
+    build.onResolve({ filter: /^sharp$/ }, () => ({
+      path: "sharp",
+      namespace: "sharp-noop",
+    }));
+    build.onLoad({ filter: /.*/, namespace: "sharp-noop" }, () => ({
+      contents: `
+        function unavailable() {
+          throw new Error("sharp is not available in serverless environment");
+        }
+        const handler = { get: (_, k) => k === "__esModule" ? false : unavailable };
+        module.exports = new Proxy(unavailable, handler);
+      `,
+      loader: "js",
+    }));
+  },
+};
+
 async function buildVercel() {
   await esbuild({
     entryPoints: [path.resolve(artifactDir, "src/serverless.ts")],
@@ -18,9 +38,9 @@ async function buildVercel() {
     logLevel: "info",
     external: [
       "*.node",
-      "sharp",
       "pg-native",
     ],
+    plugins: [sharpNoopPlugin],
     sourcemap: false,
     define: {
       "import.meta.url": "undefined",
