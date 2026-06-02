@@ -1,5 +1,5 @@
 import { useMemo, useEffect, useState, useRef } from "react";
-import HatchCommandCenter from "@/components/HatchCommandCenter";
+import IncubationCenter from "@/components/IncubationCenter";
 import {
   useGetDashboardSummary, getGetDashboardSummaryQueryKey,
 } from "@workspace/api-client-react";
@@ -1372,8 +1372,8 @@ export default function Dashboard() {
         </Badge>
       </div>
 
-      {/* ══ HATCH INTELLIGENCE COMMAND CENTER V5 ════════════════════════════ */}
-      <HatchCommandCenter />
+      {/* ══ INCUBATION CENTER ══════════════════════════════════════════════ */}
+      <IncubationCenter />
 
       {/* ── Daily Instructions — from manager notes ─────────────────────── */}
       <DailyInstructions />
