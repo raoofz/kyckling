@@ -32,14 +32,14 @@ interface BrainData {
 function buildMachine(inc: any, incId: number, displayName: string): MachineData {
   if (!inc) return { name: displayName, incId, cycles: 0, completedCycles: 0, avgRate: 0, bestRate: 0, worstRate: 0, totalHatched: 0, totalEggs: 0, activeCycle: null };
   const cycles = Array.isArray(inc.cycles) ? inc.cycles : [];
-  const completed = cycles.filter((c: any) => c.status === "completed" && c.hatchRate != null);
-  const rates = completed.map((c: any) => parseFloat(c.hatchRate) || 0);
+  const completed = cycles.filter((c: any) => c.status === "completed" && c.eggsSet > 0);
+  const rates = completed.map((c: any) => c.eggsSet > 0 ? (c.eggsHatched / c.eggsSet) * 100 : 0);
   const avgRate = rates.length > 0 ? Math.round(rates.reduce((a: number, b: number) => a + b, 0) / rates.length) : 0;
   const bestRate = rates.length > 0 ? Math.max(...rates) : 0;
   const worstRate = rates.length > 0 ? Math.min(...rates) : 0;
   const totalHatched = cycles.reduce((s: number, c: any) => s + (c.eggsHatched || 0), 0);
   const totalEggs = cycles.reduce((s: number, c: any) => s + (c.eggsSet || 0), 0);
-  const raw = cycles.find((c: any) => c.status === "active" || c.status === "incubating" || c.isActive);
+  const raw = cycles.find((c: any) => c.status === "active" || c.status === "incubating" || c.status === "hatching" || c.isActive);
   let activeCycle = null;
   if (raw) {
     const startMs = new Date(raw.startDate).getTime();
