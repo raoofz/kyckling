@@ -37,14 +37,12 @@ router.get("/farm-analytics/overview", async (_req, res) => {
     const activeCycles = cycles.filter(
       (c: HatchingCycle) => c.status === "incubating" || c.status === "hatching",
     );
-    const avgHatchRate =
-      completedCycles.reduce(
-        (sum: number, c: HatchingCycle) => sum + (c.eggsSet > 0 ? (c.eggsHatched! / c.eggsSet) * 100 : 0),
-        0,
-      ) / (completedCycles.length || 1);
     const totalEggsUsed = completedCycles.reduce((s: number, c: HatchingCycle) => s + c.eggsSet, 0);
     const totalChicksHatched = completedCycles.reduce((s: number, c: HatchingCycle) => s + (c.eggsHatched || 0), 0);
     const activeEggs = activeCycles.reduce((s: number, c: HatchingCycle) => s + c.eggsSet, 0);
+    const avgHatchRate = totalEggsUsed > 0
+      ? Math.round((totalChicksHatched / totalEggsUsed) * 100)
+      : 0;
 
     // Per-cycle breakdown
     const cycleBreakdown = cycles

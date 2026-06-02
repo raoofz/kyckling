@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, sql } from "drizzle-orm";
 import {
   db,
   incubatorsTable,
@@ -32,7 +32,7 @@ router.get("/incubators", async (_req, res) => {
     const activeCycles = await db
       .select()
       .from(hatchingCyclesTable)
-      .where(eq(hatchingCyclesTable.isActive, true));
+      .where(sql`${hatchingCyclesTable.status} IN ('incubating', 'hatching')`);
 
     type Cycle = typeof hatchingCyclesTable.$inferSelect;
     type Inc = typeof incubatorsTable.$inferSelect;

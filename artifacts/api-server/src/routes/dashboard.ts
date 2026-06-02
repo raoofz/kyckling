@@ -59,10 +59,10 @@ router.get("/dashboard/summary", async (_req, res) => {
     overallHatchRate = totalSet > 0 ? Math.round((totalHatched / totalSet) * 100) : 0;
   }
 
-  // Include the active cycles (is_active = true) directly in the summary
+  // Include the active cycles (status-based) directly in the summary
   const activeCycleRows = await db.select()
     .from(hatchingCyclesTable)
-    .where(eq(hatchingCyclesTable.isActive, true));
+    .where(sql`${hatchingCyclesTable.status} IN ('incubating', 'hatching')`);
 
   res.json({
     totalFlocks: flockStats?.totalFlocks ?? 0,
@@ -79,11 +79,11 @@ router.get("/dashboard/summary", async (_req, res) => {
 });
 
 // Dedicated endpoint for the active hatching batch(es)
-// This is the source of truth for the dashboard live monitor — uses is_active flag
+// Uses status-based query so all incubating/hatching cycles are included
 router.get("/dashboard/active-cycles", async (_req, res) => {
   const cycles = await db.select()
     .from(hatchingCyclesTable)
-    .where(eq(hatchingCyclesTable.isActive, true));
+    .where(sql`${hatchingCyclesTable.status} IN ('incubating', 'hatching')`);
   res.json(cycles.map(formatCycle));
 });
 
@@ -94,11 +94,12 @@ router.get("/dashboard/hatch-stats", async (_req, res) => {
   const totalEggsSet = allCycles.reduce((a, c) => a + c.eggsSet, 0);
   const totalEggsHatched = completedCycles.reduce((a, c) => a + (c.eggsHatched ?? 0), 0);
 
-  const hatchRates = completedCycles.map(c => (c.eggsHatched ?? 0) / c.eggsSet * 100);
-  const averageHatchRate = hatchRates.length > 0
-    ? Math.round(hatchRates.reduce((a, b) => a + b, 0) / hatchRates.length)
+  const averageHatchRate = totalEggsSet > 0
+    ? Math.round((totalEggsHatched / totalEggsSet) * 100)
     : 0;
-  const bestHatchRate = hatchRates.length > 0 ? Math.round(Math.max(...hatchRates)) : 0;
+  const bestHatchRate = completedCycles.length > 0
+    ? Math.round(Math.max(...completedCycles.map(c => (c.eggsHatched ?? 0) / c.eggsSet * 100)))
+    : 0;
 
   const recentCycles = allCycles.slice(-5).map(c => ({
     ...c,

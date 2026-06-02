@@ -133,6 +133,10 @@ function AppRoutes() {
           <Route path="/goals"><Redirect to="/workspace?tab=goals" /></Route>
           <Route path="/logs"><Redirect to="/workspace?tab=timeline" /></Route>
           <Route path="/notes"><Redirect to="/workspace?tab=timeline" /></Route>
+          {/* Friendly alias redirects */}
+          <Route path="/chickens"><Redirect to="/flocks" /></Route>
+          <Route path="/poultry"><Redirect to="/flocks" /></Route>
+          <Route path="/machines"><Redirect to="/incubators" /></Route>
           <Route path="/brain">
             {() => <ProtectedRoute component={Brain} adminOnly />}
           </Route>

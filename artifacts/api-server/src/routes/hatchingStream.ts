@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { eq } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { db, hatchingCyclesTable } from "@workspace/db";
 import { logger } from "../lib/logger";
 
@@ -49,7 +49,7 @@ async function queryActiveCycles(): Promise<CyclePayload[]> {
   const rows = await db
     .select()
     .from(hatchingCyclesTable)
-    .where(eq(hatchingCyclesTable.isActive, true));
+    .where(sql`${hatchingCyclesTable.status} IN ('incubating', 'hatching')`);
   return rows.map(formatCycle);
 }
 

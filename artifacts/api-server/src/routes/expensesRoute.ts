@@ -49,7 +49,7 @@ router.get("/expenses/summary", async (_req, res) => {
 router.post("/expenses", async (req, res) => {
   try {
     const body = req.body;
-    const result = await db.transaction(async (tx: typeof db) => {
+    const result = await db.transaction(async (tx) => {
       const [expense] = await tx
         .insert(expensesTable)
         .values({

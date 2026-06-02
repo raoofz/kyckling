@@ -68,7 +68,7 @@ router.get("/sales/summary", async (_req, res) => {
 router.post("/sales", async (req, res) => {
   try {
     const body = req.body;
-    const result = await db.transaction(async (tx: typeof db) => {
+    const result = await db.transaction(async (tx) => {
       const [sale] = await tx
         .insert(salesTable)
         .values({
