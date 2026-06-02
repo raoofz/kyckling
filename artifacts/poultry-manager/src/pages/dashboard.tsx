@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { WeatherWidget } from "@/components/WeatherWidget";
-import { DecisionPanel } from "@/components/DecisionPanel";
+import { DecisionPanel } from "@/components/DecisionPanel";import CentralFarmBrain from "@/components/CentralFarmBrain";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Link } from "wouter";
 import {
@@ -1537,7 +1537,7 @@ export default function Dashboard() {
 
       {/* Weather + Decision Logic */}
       <WeatherWidget />
-      <DecisionPanel />
+      <CentralFarmBrain />      <DecisionPanel />
     </div>
   );
 }
