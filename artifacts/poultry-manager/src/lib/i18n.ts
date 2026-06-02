@@ -1190,12 +1190,7 @@ const translations: Record<string, Record<Lang, string>> = {
   "farmAnalytics.revenue":     { ar: "الإيرادات", sv: "Intäkter" },
   "farmAnalytics.costs":       { ar: "التكاليف", sv: "Kostnader" },
 
-  // ── Common ─────────────────────────────────────────────────────────────────
-  "common.save":             { ar: "حفظ", sv: "Spara" },
-  "common.cancel":           { ar: "إلغاء", sv: "Avbryt" },
-  "common.delete":           { ar: "حذف", sv: "Ta bort" },
-  "common.edit":             { ar: "تعديل", sv: "Redigera" },
-  "common.add":              { ar: "إضافة", sv: "Lägg till" },
+  // ── Common (extended) ──────────────────────────────────────────────────────
   "common.close":            { ar: "إغلاق", sv: "Stäng" },
   "common.confirm":          { ar: "تأكيد", sv: "Bekräfta" },
   "common.noData":           { ar: "لا توجد بيانات", sv: "Ingen data" },

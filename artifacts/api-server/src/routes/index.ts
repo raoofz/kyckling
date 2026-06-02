@@ -29,6 +29,7 @@ import salesRouter from "./sales";
 import expensesRouter from "./expensesRoute";
 import azollaRouter from "./azolla";
 import farmAnalyticsRouter from "./farmAnalytics";
+import hatchOpeningsRouter from "./hatchOpenings";
 import batchesRouter from "./batches";
 import medicineRecordsRouter from "./medicineRecords";
 import invoicesRouter from "./invoices";
@@ -114,6 +115,7 @@ router.use(salesRouter);
 router.use(expensesRouter);
 router.use(azollaRouter);
 router.use(farmAnalyticsRouter);
+router.use(hatchOpeningsRouter);
 // Accounting surface — financial data is admin-only (workers should never see
 // invoices, batches, cost analysis, or insights).
 router.use("/batches",          requireRole("admin"));

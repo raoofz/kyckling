@@ -522,6 +522,33 @@ export async function runMigrations() {
       CREATE INDEX IF NOT EXISTS "idx_azolla_date" ON "azolla_production" ("date" DESC);
 
       ALTER TABLE "hatching_cycles" ADD COLUMN IF NOT EXISTS "incubator_id" INTEGER;
+
+      -- Hatch openings: per-opening tracking for each machine open during hatching
+      CREATE TABLE IF NOT EXISTS "hatch_openings" (
+        "id" SERIAL PRIMARY KEY,
+        "hatching_cycle_id" INTEGER NOT NULL,
+        "opened_at" TIMESTAMP NOT NULL DEFAULT NOW(),
+        "chicks_count" INTEGER NOT NULL DEFAULT 0,
+        "notes" TEXT,
+        "opened_by_name" TEXT,
+        "created_at" TIMESTAMP NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS "idx_hatch_openings_cycle_id" ON "hatch_openings" ("hatching_cycle_id");
+
+      -- Daily log per cycle-date (upsert)
+      CREATE TABLE IF NOT EXISTS "hatching_daily_logs" (
+        "id" SERIAL PRIMARY KEY,
+        "hatching_cycle_id" INTEGER NOT NULL,
+        "log_date" DATE NOT NULL,
+        "temperature" NUMERIC(5,2),
+        "humidity" NUMERIC(5,2),
+        "turning_done" BOOLEAN NOT NULL DEFAULT FALSE,
+        "notes" TEXT,
+        "issues" TEXT,
+        "created_at" TIMESTAMP NOT NULL DEFAULT NOW(),
+        UNIQUE("hatching_cycle_id", "log_date")
+      );
+      CREATE INDEX IF NOT EXISTS "idx_daily_logs_cycle_id" ON "hatching_daily_logs" ("hatching_cycle_id");
     `);
 
     logger.info("All database tables ensured");

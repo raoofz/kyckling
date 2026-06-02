@@ -1,4 +1,5 @@
 import { useMemo, useEffect, useState, useRef } from "react";
+import HatchingMonitorPro from "@/components/HatchingMonitorPro";
 import {
   useGetDashboardSummary, getGetDashboardSummaryQueryKey,
 } from "@workspace/api-client-react";
@@ -1371,6 +1372,9 @@ export default function Dashboard() {
         </Badge>
       </div>
 
+      {/* ── LIVE HATCHING MONITOR — أعلى لوحة المتابعة ──────────────────── */}
+      <HatchingMonitorPro />
+
       {/* ── Daily Instructions — from manager notes ─────────────────────── */}
       <DailyInstructions />
 
@@ -1405,10 +1409,6 @@ export default function Dashboard() {
 
       {/* ── Real Data KPIs — from farm-analytics API ───────────────────────── */}
       <RealDataKPIs lang={lang} />
-
-      {/* ── Live Hatching Monitor ── */}
-      <LiveHatchingMonitor lang={lang} />
-
 
       {/* ── Insights + Decisions ────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

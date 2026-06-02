@@ -25,3 +25,5 @@ export * from "./customers";
 export * from "./sales";
 export * from "./expenses";
 export * from "./azollaProduction";
+export * from "./hatchOpenings";
+export * from "./hatchingDailyLogs";
