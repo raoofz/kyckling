@@ -1,5 +1,5 @@
 import { useMemo, useEffect, useState, useRef } from "react";
-import HatchingMonitorPro from "@/components/HatchingMonitorPro";
+import HatchCommandCenter from "@/components/HatchCommandCenter";
 import {
   useGetDashboardSummary, getGetDashboardSummaryQueryKey,
 } from "@workspace/api-client-react";
@@ -1372,8 +1372,8 @@ export default function Dashboard() {
         </Badge>
       </div>
 
-      {/* ── LIVE HATCHING MONITOR — أعلى لوحة المتابعة ──────────────────── */}
-      <HatchingMonitorPro />
+      {/* ══ HATCH INTELLIGENCE COMMAND CENTER V5 ════════════════════════════ */}
+      <HatchCommandCenter />
 
       {/* ── Daily Instructions — from manager notes ─────────────────────── */}
       <DailyInstructions />
