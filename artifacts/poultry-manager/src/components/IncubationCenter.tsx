@@ -1,24 +1,35 @@
 /**
- * IncubationCenter — مركز التفقيس
- * ════════════════════════════════════════════════════════════════
- * • كل ماكينة تُعرض دائماً — نشطة أو بآخر دورة لها
- * • التواريخ والأوقات ظاهرة بوضوح
- * • زر تسجيل الصيصان مرئي مباشرة
- * • بيانات حقيقية 100% من API
+ * IncubationCenter — مركز مراقبة التفقيس
+ * ═══════════════════════════════════════════════════════════════
+ *
+ * DESIGN PRINCIPLES (من بحث احترافي):
+ *  • أرقام monospace كبيرة للمقاييس الأساسية
+ *  • خلفية داكنة جداً (#080b10) + نص عالي التباين
+ *  • ألوان دلالية فقط: أزرق=حضانة، عنبري=إغلاق، أخضر=فقس، أحمر=خطر
+ *  • تواريخ وأوقات رقمية: DD/MM/YYYY HH:MM
+ *  • لا ديكور بلا وظيفة
+ *  • كل ماكينة تظهر دائماً (نشطة أو آخر دورة لها)
+ *  • زر فتح الفقاسة بارز ومباشر
  */
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
-import { useLanguage } from "@/contexts/LanguageContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  Thermometer, Droplets, Egg, Bird, Calendar, Clock,
-  AlertTriangle, CheckCircle2, Wifi, WifiOff, RefreshCw,
-  Plus, Trash2, Activity, AlertCircle, RotateCcw,
-  ChevronDown, ChevronUp, History,
+  Thermometer, Droplets, Egg, Bird, Wifi, WifiOff,
+  RefreshCw, Plus, Trash2, ChevronDown, ChevronUp,
+  AlertTriangle, AlertCircle, CheckCircle2, RotateCcw,
+  Activity, DollarSign, FlaskConical,
 } from "lucide-react";
+
+// ─── DESIGN TOKENS ────────────────────────────────────────────────────────────
+
+const BG    = "#080b10";
+const CARD  = "#0d1219";
+const EDGE  = "#1a2535";
+const DIM   = "#8b949e";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -27,11 +38,12 @@ interface Cycle {
   batchName: string;
   eggsSet: number;
   eggsHatched: number | null;
-  startDate: string;
-  setTime: string | null;
+  startDate: string;          // YYYY-MM-DD
+  setTime: string | null;     // HH:MM
   expectedHatchDate: string;
   actualHatchDate: string | null;
   lockdownDate: string | null;
+  lockdownTime: string | null;
   status: string;
   temperature: number | null;
   humidity: number | null;
@@ -48,6 +60,8 @@ interface Incubator {
   model: string | null;
   capacity: number;
   status: string;
+  location: string | null;
+  purchaseCost: number | null;
   activeCycle: Cycle | null;
 }
 
@@ -58,115 +72,148 @@ interface Opening {
   chicksCount: number;
   notes: string | null;
   openedByName: string | null;
+  createdAt: string;
 }
 
-// ─── Phase computation ────────────────────────────────────────────────────────
+// ─── Phase Engine ─────────────────────────────────────────────────────────────
 
 type Phase = "incubation" | "lockdown" | "hatching" | "overdue" | "completed" | "failed";
 
-interface CS {
-  phase: Phase; day: number; pct: number;
-  daysLeft: number; hoursLeft: number; secsLeft: number;
-  idealTemp: number; idealHum: number;
-  turningNeeded: boolean; embryo: string; phaseAr: string;
+interface PhaseResult {
+  phase: Phase;
+  day: number;
+  pct: number;
+  secsLeft: number;
+  daysLeft: number;
+  hoursLeft: number;
+  minsLeft: number;
+  idealTemp: number;
+  idealHum: number;
+  turningNeeded: boolean;
+  candlingNext: number | null;   // next candling day (7, 14, 18)
+  embryoStage: string;
+  phaseLabel: string;
+  accent: string;
 }
 
+const CANDLING_DAYS = [7, 14, 18];
+
 const EMBRYO: Record<number, string> = {
-  1:"بداية الجهاز العصبي", 2:"ظهور الأوعية الدموية",
-  3:"القلب يبدأ النبض", 4:"تكوّن الرأس والأطراف",
-  5:"الجهاز الهضمي والكبد", 6:"ظهور المنقار والجناحين",
-  7:"تكامل العينين", 8:"نمو الأجنحة والأرجل",
-  9:"بصيلات الريش الأولى", 10:"تصلّب العظام",
-  11:"الكلى والرئتان تعملان", 12:"غطاء ريشي كامل",
-  13:"تخزين الدهون للفقس", 14:"تكامل الجهاز العضلي",
-  15:"النمو شبه مكتمل", 16:"الجهاز المناعي ينضج",
-  17:"آخر يوم للتقليب", 18:"الانتقال للفقس",
-  19:"ثقب الغرفة الهوائية", 20:"المنقار يكسر القشرة",
-  21:"الصوص يخرج",
+  1:"تكوين المحور العصبي",   2:"ظهور الأوعية الدموية",
+  3:"القلب يبدأ النبض",       4:"تمايز الرأس والأطراف",
+  5:"الجهاز الهضمي",          6:"ظهور المنقار والجناحين",
+  7:"تكامل العينين",           8:"نمو الأطراف",
+  9:"بصيلات الريش",           10:"تصلّب العظام",
+  11:"الكلى والرئتان",         12:"الغطاء الريشي الكامل",
+  13:"تخزين الدهون",           14:"التكلّس الثاني",
+  15:"النمو شبه مكتمل",        16:"الجهاز المناعي",
+  17:"آخر يوم للتقليب",        18:"الانتقال للفقس",
+  19:"ثقب الغرفة الهوائية",   20:"كسر القشرة",
+  21:"الخروج",
 };
 
-function getCS(cycle: Cycle, nowMs: number): CS {
-  const startMs  = new Date(cycle.startDate + "T12:00:00").getTime();
-  const hatchMs  = new Date(cycle.expectedHatchDate + "T12:00:00").getTime();
-  const elapsed  = nowMs - startMs;
-  const remain   = Math.max(0, hatchMs - nowMs);
+const PHASE_META: Record<Phase, { label:string; accent:string }> = {
+  incubation:{ label:"حضانة",    accent:"#2563eb" },
+  lockdown:  { label:"إغلاق",    accent:"#d97706" },
+  hatching:  { label:"فقس نشط",  accent:"#059669" },
+  overdue:   { label:"تأخّرت",   accent:"#dc2626" },
+  completed: { label:"مكتملة",   accent:"#475569" },
+  failed:    { label:"فاشلة",    accent:"#7f1d1d" },
+};
 
-  const day      = Math.max(1, Math.floor(elapsed / 86_400_000) + 1);
-  const pct      = Math.min(100, Math.round((elapsed / (hatchMs - startMs)) * 100));
-  const daysLeft  = Math.floor(remain / 86_400_000);
-  const hoursLeft = Math.floor((remain % 86_400_000) / 3_600_000);
-  const secsLeft  = Math.floor(remain / 1_000);
+function computePhase(cycle: Cycle, nowMs: number): PhaseResult {
+  // Use setTime for precise start (matches hatching.tsx algorithm)
+  const startMs = new Date(
+    `${cycle.startDate}T${cycle.setTime ?? "12:00"}:00`
+  ).getTime();
+  const hatchMs = new Date(
+    `${cycle.expectedHatchDate}T${cycle.setTime ?? "12:00"}:00`
+  ).getTime();
+
+  const elapsedMs = nowMs - startMs;
+  const remainMs  = Math.max(0, hatchMs - nowMs);
+  const totalMs   = hatchMs - startMs;
+
+  const day     = Math.max(1, Math.floor(elapsedMs / 86_400_000) + 1);
+  const pct     = totalMs > 0 ? Math.min(100, Math.round((elapsedMs / totalMs) * 100)) : 100;
+  const secsLeft  = Math.floor(remainMs / 1_000);
+  const daysLeft  = Math.floor(remainMs / 86_400_000);
+  const hoursLeft = Math.floor((remainMs % 86_400_000) / 3_600_000);
+  const minsLeft  = Math.floor((remainMs % 3_600_000) / 60_000);
 
   let phase: Phase;
-  if      (cycle.status === "completed") phase = "completed";
-  else if (cycle.status === "failed")    phase = "failed";
-  else if (remain === 0 && day > 21)     phase = "overdue";
-  else if (day >= 19)                    phase = "hatching";
-  else if (day >= 18)                    phase = "lockdown";
-  else                                   phase = "incubation";
+  if (cycle.status === "completed")            phase = "completed";
+  else if (cycle.status === "failed")          phase = "failed";
+  else if (secsLeft === 0 && day > 22)         phase = "overdue";
+  else if (day >= 19 || cycle.status === "hatching") phase = "hatching";
+  else if (day >= 18)                          phase = "lockdown";
+  else                                         phase = "incubation";
 
-  const lkd      = phase === "lockdown" || phase === "hatching";
+  const lkd = phase === "lockdown" || phase === "hatching";
   const idealTemp = lkd ? 37.2 : 37.7;
   const idealHum  = lkd ? 70   : 55;
   const turningNeeded = phase === "incubation" && day <= 17;
 
-  const phaseMap: Record<Phase, string> = {
-    incubation:"حضانة", lockdown:"إغلاق",
-    hatching:"فقس نشط", overdue:"تأخّرت",
-    completed:"مكتملة", failed:"فاشلة",
-  };
+  const candlingNext = CANDLING_DAYS.find(d => d > day) ?? null;
 
   return {
-    phase, day, pct, daysLeft, hoursLeft, secsLeft,
-    idealTemp, idealHum, turningNeeded,
-    embryo: EMBRYO[Math.min(day, 21)] ?? "اكتمل التطور",
-    phaseAr: phaseMap[phase],
+    phase, day, pct, secsLeft, daysLeft, hoursLeft, minsLeft,
+    idealTemp, idealHum, turningNeeded, candlingNext,
+    embryoStage: EMBRYO[Math.min(day, 21)] ?? "اكتمل التطور",
+    phaseLabel: PHASE_META[phase].label,
+    accent:     PHASE_META[phase].accent,
   };
 }
 
-// ─── Phase colors ─────────────────────────────────────────────────────────────
+// ─── Formatters ───────────────────────────────────────────────────────────────
 
-const PC: Record<Phase, { accent: string; dimText: string; ring: string; bar: string }> = {
-  incubation:{ accent:"#3b82f6", dimText:"text-blue-400",   ring:"ring-blue-500/25",    bar:"bg-blue-500"   },
-  lockdown:  { accent:"#f59e0b", dimText:"text-amber-400",  ring:"ring-amber-500/25",   bar:"bg-amber-500"  },
-  hatching:  { accent:"#10b981", dimText:"text-emerald-400",ring:"ring-emerald-500/30", bar:"bg-emerald-500"},
-  overdue:   { accent:"#ef4444", dimText:"text-red-400",    ring:"ring-red-500/35",     bar:"bg-red-500"    },
-  completed: { accent:"#475569", dimText:"text-slate-400",  ring:"ring-slate-600/20",   bar:"bg-slate-600"  },
-  failed:    { accent:"#7f1d1d", dimText:"text-red-600",    ring:"ring-red-900/30",     bar:"bg-red-900"    },
-};
-
-// ─── Formatting helpers ───────────────────────────────────────────────────────
-
-function fmtDateFull(d: string) {
-  return new Date(d + "T12:00:00").toLocaleDateString("ar-IQ", {
-    weekday:"short", day:"numeric", month:"long", year:"numeric",
-  });
-}
-function fmtDateShort(d: string) {
-  return new Date(d + "T12:00:00").toLocaleDateString("ar-IQ", {
-    day:"numeric", month:"long",
-  });
-}
-function fmtDateTime(iso: string) {
-  return new Date(iso).toLocaleString("ar-IQ", {
-    day:"numeric", month:"short", hour:"2-digit", minute:"2-digit",
-  });
+/** DD/MM/YYYY */
+function fmtDate(d: string): string {
+  const [y, m, dd] = d.split("-");
+  return `${dd}/${m}/${y}`;
 }
 
-// ─── Countdown ────────────────────────────────────────────────────────────────
+/** DD/MM/YYYY HH:MM from ISO */
+function fmtIso(iso: string): string {
+  const d = new Date(iso);
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yy = d.getFullYear();
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mn = String(d.getMinutes()).padStart(2, "0");
+  return `${dd}/${mm}/${yy} ${hh}:${mn}`;
+}
 
-function Countdown({ secsLeft, phase, cls }: { secsLeft:number; phase:Phase; cls:string }) {
+function pad2(n: number): string { return String(n).padStart(2, "0"); }
+
+function fmtNum(n: number): string { return n.toLocaleString("en-US"); }
+
+// ─── Live Countdown ───────────────────────────────────────────────────────────
+
+function LiveCountdown({ secsLeft, phase, accent }: {
+  secsLeft: number; phase: Phase; accent: string;
+}) {
   const [s, setS] = useState(secsLeft);
   useEffect(() => { setS(secsLeft); }, [secsLeft]);
   useEffect(() => {
-    if (phase === "completed" || phase === "failed") return;
+    if (phase === "completed" || phase === "failed" || phase === "overdue") return;
     const id = setInterval(() => setS(v => Math.max(0, v - 1)), 1_000);
     return () => clearInterval(id);
   }, [phase]);
 
-  if (phase === "completed") return <span className="font-mono text-4xl font-black text-white/15">—</span>;
-  if (phase === "failed")    return <span className="font-mono text-4xl font-black text-red-700/40">✕</span>;
-  if (s <= 0) return <span className={`font-mono text-3xl font-black ${cls} animate-pulse`}>الآن!</span>;
+  if (phase === "completed") {
+    return <span className="font-mono text-4xl font-black text-white/20">—</span>;
+  }
+  if (phase === "failed") {
+    return <span className="font-mono text-4xl font-black text-red-800">✕</span>;
+  }
+  if (s <= 0 && phase === "hatching") {
+    return (
+      <span className="font-mono text-3xl font-black animate-pulse" style={{ color: accent }}>
+        يفقس!
+      </span>
+    );
+  }
 
   const d = Math.floor(s / 86_400);
   const h = Math.floor((s % 86_400) / 3_600);
@@ -174,500 +221,725 @@ function Countdown({ secsLeft, phase, cls }: { secsLeft:number; phase:Phase; cls
   const sec = s % 60;
 
   return (
-    <div className={`flex items-end gap-0.5 font-mono font-black leading-none ${cls}`}>
-      {d > 0 && <><span className="text-4xl">{d}</span><span className="text-xs opacity-40 mb-1 ms-0.5">ي</span></>}
-      <span className="text-4xl">{String(h).padStart(2,"0")}</span>
-      <span className="text-xs opacity-40 mb-1">س</span>
-      <span className="text-4xl">{String(m).padStart(2,"0")}</span>
-      <span className="text-xs opacity-40 mb-1">د</span>
-      <span className="text-2xl opacity-35 ms-0.5">{String(sec).padStart(2,"0")}</span>
+    <div className="flex items-end gap-1 font-mono font-black leading-none" style={{ color: accent }}>
+      {d > 0 && (
+        <><span className="text-4xl">{d}</span>
+        <span className="text-xs mb-1" style={{ color: accent + "80" }}>d</span></>
+      )}
+      <span className="text-4xl">{pad2(h)}</span>
+      <span className="text-base mb-0.5 mx-px" style={{ color: accent + "60" }}>:</span>
+      <span className="text-4xl">{pad2(m)}</span>
+      <span className="text-base mb-0.5 mx-px" style={{ color: accent + "60" }}>:</span>
+      <span className="text-3xl" style={{ color: accent + "50" }}>{pad2(sec)}</span>
     </div>
   );
 }
 
-// ─── Day progress bar ─────────────────────────────────────────────────────────
+// ─── Day Bar ──────────────────────────────────────────────────────────────────
 
-function DayBar({ day, phase }: { day:number; phase:Phase }) {
+function DayBar({ day, accent }: { day: number; accent: string }) {
   const d = Math.max(0, Math.min(21, day));
   return (
-    <div className="space-y-1">
-      <div className="flex gap-[2px] h-2.5 items-end">
-        {Array.from({ length:21 }, (_,i) => {
+    <div>
+      {/* Segment ticks */}
+      <div className="flex gap-[2px] h-3 items-end">
+        {Array.from({ length: 21 }, (_, i) => {
           const n = i + 1;
           const filled = d >= n;
-          const isToday = n === d;
-          const segColor = n <= 17 ? "bg-blue-500" : n === 18 ? "bg-amber-500" : "bg-emerald-500";
+          const isNow  = n === d;
+          const segColor = n <= 17 ? "#2563eb" : n === 18 ? "#d97706" : "#059669";
           return (
-            <div key={n} className={`flex-1 rounded-[2px] transition-all
-              ${filled ? segColor : "bg-white/[0.06]"}
-              ${isToday ? "h-full" : "h-[60%]"}
-            `} />
+            <div
+              key={n}
+              className="flex-1 rounded-[1px] transition-all duration-500"
+              style={{
+                backgroundColor: filled ? segColor : "#1a2535",
+                height: isNow ? "100%" : "55%",
+                boxShadow: isNow ? `0 0 6px ${segColor}` : "none",
+              }}
+            />
           );
         })}
       </div>
-      <div className="flex justify-between text-[9px] font-mono">
-        <span className="text-white/20">1</span>
-        <span className="text-white/20">حضانة</span>
-        <span className="text-amber-500/50">18</span>
-        <span className="text-white/20">فقس</span>
-        <span className="text-white/20">21</span>
+      {/* Labels */}
+      <div className="flex justify-between mt-1.5 text-[9px] font-mono" style={{ color: DIM + "80" }}>
+        <span>01</span>
+        <span>حضانة→</span>
+        <span style={{ color: "#d97706" + "80" }}>18</span>
+        <span>←فقس</span>
+        <span>21</span>
       </div>
     </div>
   );
 }
 
-// ─── Sensor widget ────────────────────────────────────────────────────────────
+// ─── Sensor Block ─────────────────────────────────────────────────────────────
 
-function Sensor({
-  icon: Icon, label, value, ideal, unit,
+function SensorBlock({
+  icon: Icon, label, value, ideal, unit, accentGood,
 }: {
   icon: React.ElementType; label: string;
-  value: number | null; ideal: number; unit: string;
+  value: number | null; ideal: number; unit: string; accentGood?: string;
 }) {
-  const diff = value != null ? Math.abs(value - ideal) : null;
-  const ok   = diff != null && diff <= (unit === "°C" ? 0.4 : 4);
-  const warn = diff != null && !ok && diff <= (unit === "°C" ? 1.2 : 10);
-  const crit = diff != null && !ok && !warn;
+  const diff = value != null ? value - ideal : null;
+  const absDiff = diff != null ? Math.abs(diff) : null;
+  const threshold1 = unit === "°C" ? 0.3 : 3;
+  const threshold2 = unit === "°C" ? 1.0 : 8;
 
-  const valueColor = value == null ? "text-white/20"
-    : crit ? "text-red-400" : warn ? "text-amber-300" : "text-white";
-  const iconColor  = value == null ? "text-white/15"
-    : crit ? "text-red-400" : warn ? "text-amber-400" : "text-emerald-400";
+  const valColor =
+    absDiff == null        ? "#4b5563"
+    : absDiff <= threshold1 ? "#e5e7eb"
+    : absDiff <= threshold2 ? "#fbbf24"
+    :                          "#f87171";
+
+  const iconColor =
+    absDiff == null        ? "#374151"
+    : absDiff <= threshold1 ? accentGood ?? "#10b981"
+    : absDiff <= threshold2 ? "#f59e0b"
+    :                          "#ef4444";
+
+  const diffStr = diff != null
+    ? (diff >= 0 ? `+${diff.toFixed(1)}` : diff.toFixed(1))
+    : null;
 
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex flex-col gap-1.5">
       <div className="flex items-center gap-1.5">
-        <Icon className={`w-3.5 h-3.5 ${iconColor}`} />
-        <span className="text-[10px] text-white/30 uppercase tracking-wide">{label}</span>
+        <Icon className="w-3.5 h-3.5" style={{ color: iconColor }} />
+        <span className="text-[10px] uppercase tracking-widest font-medium" style={{ color: DIM }}>
+          {label}
+        </span>
       </div>
-      <div className="flex items-baseline gap-1.5">
-        <span className={`text-3xl font-black font-mono leading-none ${valueColor}`}>
+      <div className="flex items-baseline gap-2">
+        <span className="text-5xl font-black font-mono leading-none" style={{ color: valColor }}>
           {value != null ? value : "—"}
         </span>
-        <span className="text-sm text-white/30">{unit}</span>
+        <div className="flex flex-col gap-0.5">
+          <span className="text-sm font-mono" style={{ color: valColor + "aa" }}>{unit}</span>
+          {diffStr && absDiff! > 0.05 && (
+            <span className="text-[10px] font-mono" style={{ color: valColor + "80" }}>
+              {diffStr}
+            </span>
+          )}
+        </div>
       </div>
-      <div className="flex items-center gap-1 text-[10px]">
-        <span className="text-white/20">مثالي {ideal}{unit}</span>
-        {diff != null && diff > 0.1 && (
-          <span className={crit?"text-red-400":warn?"text-amber-400":"text-emerald-400/60"}>
-            ({diff > 0 ? "+" : ""}{(value! - ideal).toFixed(1)})
-          </span>
-        )}
-        {diff != null && diff <= 0.1 && (
-          <span className="text-emerald-500/60">✓</span>
+      <div className="text-[10px] font-mono" style={{ color: "#374151" }}>
+        ideal {ideal}{unit}
+        {absDiff != null && absDiff <= threshold1 && (
+          <span style={{ color: "#059669" }}> ✓</span>
         )}
       </div>
     </div>
   );
 }
 
-// ─── Hatch Log — سجل الفتحات ─────────────────────────────────────────────────
-// Always shows the "add" button prominently; list collapses if too long.
+// ─── Open Incubator Form ──────────────────────────────────────────────────────
 
-function HatchLog({
-  cycleId, eggsSet, phase,
-}: {
-  cycleId: number; eggsSet: number; phase: Phase;
+const HEALTH_OPTIONS = [
+  { val:"ممتازة",  color:"#059669" },
+  { val:"جيدة",    color:"#2563eb" },
+  { val:"مقبولة",  color:"#d97706" },
+  { val:"ضعيفة",   color:"#dc2626" },
+];
+
+function OpenIncubatorForm({ cycleId, eggsSet, onClose, openings }: {
+  cycleId: number; eggsSet: number;
+  onClose: () => void; openings: Opening[];
 }) {
   const qc = useQueryClient();
-  const [showList, setShowList] = useState(false);
-  const [count, setCount] = useState("");
-  const [ts, setTs] = useState(() => new Date().toISOString().slice(0,16));
-  const [note, setNote] = useState("");
-  const [showForm, setShowForm] = useState(false);
+  const [count,   setCount]  = useState("");
+  const [health,  setHealth] = useState("ممتازة");
+  const [ts,      setTs]     = useState(() => new Date().toISOString().slice(0, 16));
+  const [note,    setNote]   = useState("");
+  const [step,    setStep]   = useState<1|2>(1); // 1=form, 2=confirm
 
-  const { data: openings = [], isLoading } = useQuery<Opening[]>({
+  const totalSoFar = openings.reduce((s, o) => s + o.chicksCount, 0);
+  const rateSoFar  = eggsSet > 0 ? Math.round((totalSoFar / eggsSet) * 100) : 0;
+
+  const add = useMutation({
+    mutationFn: (d: object) => apiFetch(`/hatching-cycles/${cycleId}/openings`, {
+      method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(d),
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey:["openings", cycleId] });
+      onClose();
+    },
+  });
+
+  const countNum = parseInt(count) || 0;
+
+  return (
+    <div
+      className="rounded-xl border overflow-hidden"
+      style={{ background: "#0a1020", borderColor: "#059669" + "40" }}
+    >
+      {/* Header */}
+      <div className="px-4 py-2.5 flex items-center justify-between border-b" style={{ borderColor: "#059669" + "25", background: "#059669" + "10" }}>
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+          <span className="text-sm font-bold text-emerald-400">فتح الفقاسة — تسجيل الصيصان</span>
+        </div>
+        <button onClick={onClose} className="text-white/30 hover:text-white/60 text-lg leading-none">×</button>
+      </div>
+
+      {/* Previous total */}
+      {openings.length > 0 && (
+        <div className="px-4 py-2 flex items-center gap-3 border-b" style={{ borderColor: EDGE, background:"#ffffff05" }}>
+          <span className="text-[10px]" style={{ color: DIM }}>مُسجَّل سابقاً:</span>
+          <span className="text-base font-black font-mono text-emerald-400">{fmtNum(totalSoFar)}</span>
+          <span className="text-[10px]" style={{ color: DIM }}>صوص ({rateSoFar}%)</span>
+          <span className="text-[10px]" style={{ color: DIM }}>من {openings.length} فتحة</span>
+        </div>
+      )}
+
+      <div className="p-4 space-y-3">
+        {/* Count + Health */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-[10px] uppercase tracking-wider font-medium block mb-1.5" style={{ color: DIM }}>
+              عدد الصيصان *
+            </label>
+            <Input
+              type="number" min="0" value={count}
+              onChange={e => setCount(e.target.value)}
+              placeholder="0"
+              className="h-12 text-2xl font-black font-mono text-center"
+              style={{ background:"#111827", borderColor: count ? "#059669" : EDGE, color:"#fff" }}
+              autoFocus
+            />
+          </div>
+          <div>
+            <label className="text-[10px] uppercase tracking-wider font-medium block mb-1.5" style={{ color: DIM }}>
+              الحالة الصحية
+            </label>
+            <div className="grid grid-cols-2 gap-1">
+              {HEALTH_OPTIONS.map(h => (
+                <button
+                  key={h.val}
+                  onClick={() => setHealth(h.val)}
+                  className="h-[1.6rem] rounded text-[10px] font-bold transition-all"
+                  style={{
+                    background: health === h.val ? h.color + "25" : "#111827",
+                    border: `1px solid ${health === h.val ? h.color : EDGE}`,
+                    color: health === h.val ? h.color : DIM,
+                  }}
+                >
+                  {h.val}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Date + time */}
+        <div>
+          <label className="text-[10px] uppercase tracking-wider font-medium block mb-1.5" style={{ color: DIM }}>
+            التاريخ والوقت
+          </label>
+          <Input
+            type="datetime-local" value={ts}
+            onChange={e => setTs(e.target.value)}
+            className="h-10 text-sm font-mono"
+            style={{ background:"#111827", borderColor: EDGE, color:"#fff" }}
+          />
+        </div>
+
+        {/* Notes */}
+        <div>
+          <label className="text-[10px] uppercase tracking-wider font-medium block mb-1.5" style={{ color: DIM }}>
+            ملاحظات إضافية
+          </label>
+          <Input
+            value={note} onChange={e => setNote(e.target.value)}
+            placeholder="مثال: صيصان نشيطة وجافة، بعضها لم يخرج بعد"
+            className="h-10 text-sm"
+            style={{ background:"#111827", borderColor: EDGE, color:"#e5e7eb" }}
+          />
+        </div>
+
+        {/* Summary + submit */}
+        {countNum > 0 && (
+          <div className="rounded-lg p-3" style={{ background:"#059669" + "10", border:`1px solid ${"#059669" + "30"}` }}>
+            <div className="grid grid-cols-3 gap-2 text-center mb-3">
+              {[
+                { l:"يخرج الآن",       v: fmtNum(countNum),                         c:"#34d399" },
+                { l:"الإجمالي",         v: fmtNum(totalSoFar + countNum),            c:"#6ee7b7" },
+                { l:"النسبة الكلية",    v: `${Math.round(((totalSoFar+countNum)/eggsSet)*100)}%`, c:"#a7f3d0" },
+              ].map(s => (
+                <div key={s.l}>
+                  <div className="text-xl font-black font-mono" style={{ color: s.c }}>{s.v}</div>
+                  <div className="text-[9px] mt-0.5" style={{ color: "#6b7280" }}>{s.l}</div>
+                </div>
+              ))}
+            </div>
+            <div className="text-[10px] text-center" style={{ color: "#4b5563" }}>
+              {fmtIso(ts)} · حالة: {health}
+            </div>
+          </div>
+        )}
+
+        <Button
+          className="w-full h-11 text-sm font-bold"
+          style={{ background: countNum > 0 ? "#059669" : "#1a2535", color: countNum > 0 ? "#fff" : "#374151" }}
+          onClick={() => {
+            if (!countNum) return;
+            const combined = [health, note].filter(Boolean).join(" — ");
+            add.mutate({
+              chicksCount: countNum,
+              openedAt: new Date(ts).toISOString(),
+              notes: combined || null,
+            });
+          }}
+          disabled={add.isPending || countNum < 1}
+        >
+          {add.isPending ? "جاري الحفظ…" : `✓  حفظ — ${fmtNum(countNum)} صوص · ${health}`}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Hatch Log Section ────────────────────────────────────────────────────────
+
+function HatchLogSection({ cycleId, eggsSet, phase }: {
+  cycleId: number; eggsSet: number; phase: Phase;
+}) {
+  const qc  = useQueryClient();
+  const [formOpen,  setFormOpen]  = useState(false);
+  const [listOpen,  setListOpen]  = useState(false);
+
+  const { data: openings = [] } = useQuery<Opening[]>({
     queryKey: ["openings", cycleId],
     queryFn: () => apiFetch(`/hatching-cycles/${cycleId}/openings`),
     refetchInterval: 30_000,
   });
 
-  const add = useMutation({
-    mutationFn: (d:object) => apiFetch(`/hatching-cycles/${cycleId}/openings`, {
-      method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(d),
-    }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey:["openings", cycleId] });
-      setCount(""); setNote(""); setShowForm(false);
-    },
-  });
-
   const del = useMutation({
-    mutationFn: (id:number) => apiFetch(`/hatch-openings/${id}`, { method:"DELETE" }),
+    mutationFn: (id: number) => apiFetch(`/hatch-openings/${id}`, { method:"DELETE" }),
     onSuccess: () => qc.invalidateQueries({ queryKey:["openings", cycleId] }),
   });
 
-  const totalChicks = openings.reduce((s,o) => s + o.chicksCount, 0);
-  const rate = eggsSet > 0 ? Math.round((totalChicks / eggsSet) * 100) : 0;
+  const total = openings.reduce((s, o) => s + o.chicksCount, 0);
+  const rate  = eggsSet > 0 ? Math.round((total / eggsSet) * 100) : 0;
 
-  const isActive = phase === "hatching" || phase === "overdue" || phase === "incubation" || phase === "lockdown";
+  const isActive = phase !== "completed" && phase !== "failed";
 
   return (
-    <div className="border-t border-white/[0.07] pt-3 space-y-3">
-
-      {/* Header + totals */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Bird className="w-3.5 h-3.5 text-white/30" />
-          <span className="text-xs font-semibold text-white/50">سجل فتح الفقاسة</span>
-          {openings.length > 0 && (
-            <span className="text-[10px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 rounded px-1.5 font-bold">
-              {totalChicks.toLocaleString("ar-IQ")} صوص · {rate}%
-            </span>
-          )}
-        </div>
-        {openings.length > 0 && (
-          <button onClick={() => setShowList(v=>!v)}
-            className="text-[10px] text-white/25 hover:text-white/50 flex items-center gap-1 transition-colors">
-            {openings.length} فتحة
-            {showList ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-          </button>
-        )}
-      </div>
-
-      {/* Openings list */}
-      {showList && openings.length > 0 && (
-        <div className="space-y-1.5 max-h-44 overflow-y-auto">
-          {/* Summary tiles */}
-          <div className="grid grid-cols-3 gap-1.5 mb-2">
-            {[
-              { l:"إجمالي الصيصان",v:totalChicks.toLocaleString("ar-IQ"),c:"text-emerald-400" },
-              { l:"نسبة الفقس",    v:`${rate}%`,                          c:"text-blue-400"   },
-              { l:"عدد الفتحات",   v:String(openings.length),             c:"text-amber-400"  },
-            ].map(s => (
-              <div key={s.l} className="rounded-lg bg-white/[0.04] border border-white/[0.07] p-2 text-center">
-                <div className={`text-base font-black font-mono ${s.c}`}>{s.v}</div>
-                <div className="text-[9px] text-white/25 mt-0.5">{s.l}</div>
-              </div>
-            ))}
-          </div>
-
-          {openings.map((o,i) => (
-            <div key={o.id}
-              className="flex items-center justify-between rounded-lg bg-white/[0.04] border border-white/[0.07] px-3 py-2">
-              <div className="flex items-center gap-3 min-w-0">
-                <span className="text-[10px] font-mono text-white/20 shrink-0">#{i+1}</span>
-                <span className="font-bold text-emerald-400 shrink-0">
-                  {o.chicksCount.toLocaleString("ar-IQ")} صوص
-                </span>
-                <span className="text-white/35 text-xs truncate">{fmtDateTime(o.openedAt)}</span>
-                {o.notes && <span className="text-white/25 text-[10px] truncate">{o.notes}</span>}
-              </div>
-              <button onClick={() => del.mutate(o.id)}
-                className="text-white/15 hover:text-red-400 transition-colors shrink-0 ms-2 p-0.5">
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          ))}
-        </div>
+    <div className="space-y-2 pt-3 border-t" style={{ borderColor: EDGE }}>
+      {/* Form */}
+      {formOpen && (
+        <OpenIncubatorForm
+          cycleId={cycleId}
+          eggsSet={eggsSet}
+          onClose={() => setFormOpen(false)}
+          openings={openings}
+        />
       )}
 
-      {/* Add form */}
-      {showForm ? (
-        <div className="rounded-xl bg-white/[0.04] border border-white/10 p-3 space-y-2.5">
-          <div className="text-[11px] font-semibold text-white/50 mb-1">
-            تسجيل فتحة جديدة — أدخل الصيصان التي خرجت
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className="text-[10px] text-white/30 block mb-1">عدد الصيصان *</label>
-              <Input
-                type="number" min="0" value={count}
-                onChange={e => setCount(e.target.value)}
-                placeholder="0"
-                className="h-9 text-base font-bold bg-white/[0.05] border-white/10 text-white placeholder:text-white/20"
-                autoFocus
-              />
-            </div>
-            <div>
-              <label className="text-[10px] text-white/30 block mb-1">التاريخ والوقت</label>
-              <Input
-                type="datetime-local" value={ts}
-                onChange={e => setTs(e.target.value)}
-                className="h-9 text-sm bg-white/[0.05] border-white/10 text-white"
-              />
-            </div>
-          </div>
-          <Input
-            value={note} onChange={e => setNote(e.target.value)}
-            placeholder="ملاحظات (اختياري) — مثال: صيصان نشيطة وجافة"
-            className="h-9 text-sm bg-white/[0.05] border-white/10 text-white placeholder:text-white/20"
-          />
-          <div className="flex gap-2 pt-0.5">
-            <Button
-              size="sm"
-              className="flex-1 h-9 text-sm font-bold bg-emerald-600 hover:bg-emerald-500 border-0 text-white"
-              onClick={() => add.mutate({
-                chicksCount: parseInt(count) || 0,
-                openedAt: new Date(ts).toISOString(),
-                notes: note || null,
-              })}
-              disabled={add.isPending || !count || parseInt(count) < 1}
-            >
-              {add.isPending ? "جاري الحفظ…" : "✓  حفظ الفتحة"}
-            </Button>
-            <Button size="sm" variant="ghost"
-              className="h-9 text-sm text-white/40 hover:text-white/70 hover:bg-white/5"
-              onClick={() => setShowForm(false)}>
-              إلغاء
-            </Button>
-          </div>
-        </div>
-      ) : (
-        /* Prominent add button — always visible */
+      {/* Open incubator button */}
+      {!formOpen && (
         <button
-          onClick={() => { setShowForm(true); if (openings.length > 0) setShowList(true); }}
-          className={`w-full h-10 rounded-xl border text-sm font-semibold flex items-center justify-center gap-2 transition-all
-            ${isActive
-              ? "border-emerald-500/40 text-emerald-400 bg-emerald-500/8 hover:bg-emerald-500/15 hover:border-emerald-500/60"
-              : "border-white/10 text-white/30 bg-white/[0.03] hover:bg-white/[0.06] hover:text-white/50"
-            }`}
+          onClick={() => setFormOpen(true)}
+          className="w-full h-11 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all"
+          style={{
+            background: isActive ? "#059669" + "15" : "#1a2535",
+            border: `1px solid ${isActive ? "#059669" + "50" : EDGE}`,
+            color: isActive ? "#34d399" : DIM,
+          }}
         >
-          <Plus className="w-4 h-4" />
-          {isActive ? "فتح الفقاسة وتسجيل الصيصان" : "إضافة صيصان"}
+          <Bird className="w-4 h-4" />
+          {isActive ? "فتح الفقاسة — تسجيل الصيصان" : "إضافة / تعديل فتحات"}
         </button>
+      )}
+
+      {/* Summary + list toggle */}
+      {openings.length > 0 && (
+        <>
+          <div className="flex items-center gap-3">
+            {/* Mini totals */}
+            <div className="flex-1 grid grid-cols-3 gap-1.5">
+              {[
+                { l:"صيصان",    v: fmtNum(total), c:"#34d399" },
+                { l:"نسبة",     v: `${rate}%`,   c: rate>=70?"#34d399":rate>=50?"#fbbf24":"#f87171" },
+                { l:"فتحات",    v: String(openings.length), c:"#93c5fd" },
+              ].map(s => (
+                <div key={s.l} className="rounded-lg text-center py-1.5" style={{ background:"#0d1219", border:`1px solid ${EDGE}` }}>
+                  <div className="text-base font-black font-mono" style={{ color: s.c }}>{s.v}</div>
+                  <div className="text-[9px]" style={{ color: "#4b5563" }}>{s.l}</div>
+                </div>
+              ))}
+            </div>
+            <button
+              onClick={() => setListOpen(v => !v)}
+              className="text-[10px] flex items-center gap-1 transition-colors"
+              style={{ color: DIM }}
+            >
+              {listOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+              السجل
+            </button>
+          </div>
+
+          {/* Openings list */}
+          {listOpen && (
+            <div className="space-y-1 max-h-48 overflow-y-auto">
+              {openings.map((o, i) => (
+                <div
+                  key={o.id}
+                  className="flex items-center justify-between px-3 py-2 rounded-lg text-xs"
+                  style={{ background:"#0d1219", border:`1px solid ${EDGE}` }}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="font-mono text-[10px]" style={{ color:"#374151" }}>
+                      #{i+1}
+                    </span>
+                    <span className="font-black font-mono text-base" style={{ color:"#34d399" }}>
+                      {fmtNum(o.chicksCount)}
+                    </span>
+                    <span className="font-mono text-[11px]" style={{ color: DIM }}>
+                      {fmtIso(o.openedAt)}
+                    </span>
+                    {o.notes && (
+                      <span className="truncate text-[10px]" style={{ color:"#4b5563" }}>
+                        {o.notes}
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => del.mutate(o.id)}
+                    className="p-0.5 transition-colors"
+                    style={{ color:"#1f2937" }}
+                    onMouseEnter={e => (e.currentTarget.style.color="#ef4444")}
+                    onMouseLeave={e => (e.currentTarget.style.color="#1f2937")}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
 }
 
-// ─── Active machine card ──────────────────────────────────────────────────────
+// ─── Active Machine Card ──────────────────────────────────────────────────────
 
-function ActiveCard({ inc, cycle, nowMs }: { inc:Incubator; cycle:Cycle; nowMs:number }) {
-  const cs  = useMemo(() => getCS(cycle, nowMs), [cycle, nowMs]);
-  const c   = PC[cs.phase];
-  const lkd = cs.phase === "lockdown" || cs.phase === "hatching";
+function ActiveCard({ inc, cycle, nowMs }: {
+  inc: Incubator; cycle: Cycle; nowMs: number;
+}) {
+  const cs  = useMemo(() => computePhase(cycle, nowMs), [cycle, nowMs]);
+  const acc = cs.accent;
 
+  const lkd      = cs.phase === "lockdown" || cs.phase === "hatching";
   const tempShow = lkd ? (cycle.lockdownTemperature ?? cycle.temperature) : cycle.temperature;
   const humShow  = lkd ? (cycle.lockdownHumidity    ?? cycle.humidity)    : cycle.humidity;
 
-  // Alerts: only critical + warning (not "ok")
-  const alerts = useMemo(() => {
-    const a: { level:"critical"|"warning"; msg:string }[] = [];
-    if (!cycle.temperature && !cycle.lockdownTemperature)
-      a.push({ level:"warning", msg:"لم تُسجَّل درجة الحرارة" });
-    else if (tempShow && Math.abs(tempShow - cs.idealTemp) > 1.2)
-      a.push({ level:"critical", msg:`الحرارة ${tempShow}°C — المثالي ${cs.idealTemp}°C` });
-    else if (tempShow && Math.abs(tempShow - cs.idealTemp) > 0.4)
-      a.push({ level:"warning", msg:`الحرارة ${tempShow}°C قريبة من الحد الأعلى` });
-
-    if (cs.phase === "lockdown")
-      a.push({ level:"critical", msg:"يوم الإغلاق — أوقف التقليب وارفع الرطوبة إلى 70%" });
-    if (cs.phase === "hatching")
-      a.push({ level:"warning", msg:"فقس نشط — سجّل الصيصان عند كل فتحة للفقاسة" });
-    if (cs.phase === "overdue")
-      a.push({ level:"critical", msg:"تجاوزت موعد الفقس — راجع الوضع فوراً" });
-    if (cs.daysLeft === 1 && cs.phase === "incubation")
-      a.push({ level:"warning", msg:"الإغلاق غداً — جهّز الماكينة وارفع الرطوبة" });
-    return a;
-  }, [cycle, cs, tempShow]);
-
-  const occupancyPct = inc.capacity > 0
+  const occupancy = inc.capacity > 0
     ? Math.min(100, Math.round((cycle.eggsSet / inc.capacity) * 100))
     : 0;
 
+  // Financial quick calc
+  const eggCost       = cycle.eggsSet * 500;
+  const expectedChicks = Math.round(cycle.eggsSet * 0.65);
+  const expectedRev    = expectedChicks * 1500;
+  const expectedProfit = expectedRev - eggCost;
+
+  // Lockdown date calc
+  const lockdownDateStr = cycle.lockdownDate
+    ? fmtDate(cycle.lockdownDate)
+    : (() => {
+        const s = new Date(`${cycle.startDate}T${cycle.setTime ?? "12:00"}:00`);
+        s.setDate(s.getDate() + 17);
+        return `${pad2(s.getDate())}/${pad2(s.getMonth()+1)}/${s.getFullYear()}`;
+      })();
+
   return (
     <div
-      className={`rounded-2xl ring-1 ${c.ring} overflow-hidden
-        bg-gradient-to-b from-[#0e1219] to-[#0a0d13]`}
-      style={{ boxShadow:`0 0 40px ${c.accent}0d` }}
+      className="rounded-2xl overflow-hidden"
+      style={{
+        background: CARD,
+        border: `1px solid ${acc}35`,
+        boxShadow: `0 0 0 1px ${acc}15, 0 8px 32px ${acc}0d`,
+      }}
     >
-      {/* Top accent bar */}
-      <div className="h-[2px]" style={{ background: c.accent }} />
+      {/* Accent top bar */}
+      <div className="h-[2px]" style={{ background: `linear-gradient(90deg, ${acc}00, ${acc}, ${acc}00)` }} />
 
-      {/* ── Section 1: Machine + Batch + Phase ── */}
+      {/* ── ROW 1: Machine name + Phase + Batch ── */}
       <div className="px-5 pt-4 pb-3">
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
-            {/* Machine name */}
-            <div className="flex items-center gap-2 mb-0.5">
-              <span className={`text-[10px] font-bold uppercase tracking-[0.15em] ${c.dimText}`}>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color: acc }}>
                 {inc.name}
               </span>
-              {inc.model && <span className="text-[10px] text-white/20 font-mono">{inc.model}</span>}
-              <span className="text-[10px] text-white/15">·</span>
-              <span className="text-[10px] text-white/25">{inc.capacity.toLocaleString("ar-IQ")} بيضة</span>
+              {inc.model && (
+                <span className="text-[10px] font-mono" style={{ color:"#374151" }}>{inc.model}</span>
+              )}
+              <span className="text-[10px] font-mono" style={{ color:"#1f2937" }}>
+                {inc.capacity.toLocaleString("en-US")} eggs
+              </span>
             </div>
-            {/* Batch name */}
-            <h2 className="text-xl font-black text-white leading-tight">{cycle.batchName}</h2>
+            <h2 className="text-xl font-black text-white mt-1 leading-tight">{cycle.batchName}</h2>
           </div>
           {/* Phase pill */}
           <div
-            className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold border"
-            style={{ borderColor: c.accent + "40", background: c.accent + "12", color: c.accent }}
+            className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold"
+            style={{ background: acc + "18", border:`1px solid ${acc}45`, color: acc }}
           >
             {cs.phase === "hatching" && (
-              <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: c.accent }} />
+              <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: acc }} />
             )}
-            {cs.phaseAr}
+            {cs.phaseLabel}
           </div>
         </div>
 
         {/* Day bar */}
-        <div className="mt-3">
-          <DayBar day={cs.day} phase={cs.phase} />
+        <div className="mt-3.5">
+          <DayBar day={cs.day} accent={acc} />
         </div>
       </div>
 
-      {/* ── Section 2: Dates & Times ── */}
-      <div className="mx-5 mb-3 rounded-xl bg-white/[0.04] border border-white/[0.07] divide-y divide-white/[0.05]">
-        <div className="grid grid-cols-2 divide-x divide-white/[0.05] rtl:divide-x-reverse">
-          <div className="px-3 py-2.5">
-            <div className="flex items-center gap-1.5 mb-1">
-              <Calendar className="w-3 h-3 text-white/20" />
-              <span className="text-[9px] text-white/30 uppercase tracking-wider">تاريخ البداية</span>
+      {/* ── ROW 2: Dates (numeric) ── */}
+      <div
+        className="grid grid-cols-3 divide-x text-center py-0"
+        style={{ borderTop:`1px solid ${EDGE}`, borderBottom:`1px solid ${EDGE}` }}
+      >
+        {[
+          {
+            label:"وضع البيض",
+            date: fmtDate(cycle.startDate),
+            sub: cycle.setTime ?? "——",
+          },
+          {
+            label:"الإغلاق",
+            date: lockdownDateStr,
+            sub: cycle.lockdownTime ?? "——",
+          },
+          {
+            label:"موعد الفقس",
+            date: fmtDate(cycle.expectedHatchDate),
+            sub: cs.daysLeft > 0
+              ? `بعد ${cs.daysLeft}ي ${cs.hoursLeft}س`
+              : cs.phase === "hatching" ? "الآن" : "حان الوقت",
+          },
+        ].map((d, i) => (
+          <div key={i} className="px-3 py-3" style={{ borderRight: i<2 ? `1px solid ${EDGE}` : "none" }}>
+            <div className="text-[9px] uppercase tracking-widest mb-1.5" style={{ color:"#374151" }}>
+              {d.label}
             </div>
-            <div className="text-sm font-bold text-white/80">{fmtDateShort(cycle.startDate)}</div>
-            {cycle.setTime && (
-              <div className="flex items-center gap-1 mt-0.5">
-                <Clock className="w-3 h-3 text-white/20" />
-                <span className="text-xs text-white/40 font-mono">{cycle.setTime}</span>
-              </div>
-            )}
+            <div className="font-mono text-sm font-bold text-white">{d.date}</div>
+            <div
+              className="font-mono text-xs mt-0.5"
+              style={{ color: i===2 && cs.daysLeft<=1 ? "#fbbf24" : DIM }}
+            >
+              {d.sub}
+            </div>
           </div>
-          <div className="px-3 py-2.5">
-            <div className="flex items-center gap-1.5 mb-1">
-              <Egg className="w-3 h-3 text-white/20" />
-              <span className="text-[9px] text-white/30 uppercase tracking-wider">موعد الفقس</span>
-            </div>
-            <div className={`text-sm font-bold ${cs.phase === "overdue" ? "text-red-400" : "text-white/80"}`}>
-              {fmtDateShort(cycle.expectedHatchDate)}
-            </div>
-            {cs.phase !== "completed" && cs.phase !== "failed" && cs.daysLeft >= 0 && (
-              <div className={`text-xs font-semibold mt-0.5 ${
-                cs.daysLeft <= 1 ? "text-amber-400" : c.dimText
-              }`}>
-                {cs.daysLeft === 0 ? `اليوم — ${cs.hoursLeft}س متبقية` :
-                 cs.daysLeft === 1 ? "غداً!" :
-                 `بعد ${cs.daysLeft} أيام`}
-              </div>
-            )}
-          </div>
-        </div>
+        ))}
       </div>
 
-      {/* ── Section 3: Big 3 numbers ── */}
-      <div className="grid grid-cols-3 border-y border-white/[0.06]">
+      {/* ── ROW 3: Big 3 numbers ── */}
+      <div className="grid grid-cols-3" style={{ borderBottom:`1px solid ${EDGE}` }}>
         {/* Day */}
-        <div className="px-3 py-4 text-center border-e border-white/[0.06]">
-          <div className="text-[9px] uppercase tracking-widest text-white/20 mb-2">اليوم</div>
-          <div className={`text-5xl font-black font-mono leading-none ${c.dimText}`}>{cs.day}</div>
-          <div className="text-[9px] text-white/15 mt-1.5">من 21</div>
+        <div className="px-4 py-5 text-center" style={{ borderRight:`1px solid ${EDGE}` }}>
+          <div className="text-[9px] uppercase tracking-widest mb-2" style={{ color:"#374151" }}>اليوم</div>
+          <div className="text-6xl font-black font-mono leading-none" style={{ color: acc }}>
+            {cs.day}
+          </div>
+          <div className="text-[9px] font-mono mt-2" style={{ color:"#1f2937" }}>/ 21</div>
         </div>
 
         {/* Countdown */}
-        <div className="px-2 py-4 text-center border-e border-white/[0.06]">
-          <div className="text-[9px] uppercase tracking-widest text-white/20 mb-2">
-            {cs.phase === "hatching" ? "يفقس الآن" : "للفقس"}
+        <div className="px-3 py-5 text-center" style={{ borderRight:`1px solid ${EDGE}` }}>
+          <div className="text-[9px] uppercase tracking-widest mb-2" style={{ color:"#374151" }}>
+            {cs.phase === "hatching" ? "الفقس جارٍ" : "للفقس"}
           </div>
-          <div className="flex justify-center items-center">
-            <Countdown secsLeft={cs.secsLeft} phase={cs.phase} cls={c.dimText} />
+          <div className="flex justify-center">
+            <LiveCountdown secsLeft={cs.secsLeft} phase={cs.phase} accent={acc} />
           </div>
         </div>
 
         {/* Eggs */}
-        <div className="px-3 py-4 text-center">
-          <div className="text-[9px] uppercase tracking-widest text-white/20 mb-2">بيض</div>
-          <div className="text-5xl font-black font-mono leading-none text-white/80">
+        <div className="px-4 py-5 text-center">
+          <div className="text-[9px] uppercase tracking-widest mb-2" style={{ color:"#374151" }}>بيض</div>
+          <div className="text-5xl font-black font-mono leading-none text-white">
             {cycle.eggsSet >= 1000
-              ? <>{(cycle.eggsSet/1000).toFixed(1)}<span className="text-2xl text-white/30">K</span></>
+              ? <>{(cycle.eggsSet/1000).toFixed(1)}<span className="text-2xl" style={{ color:"#374151" }}>K</span></>
               : cycle.eggsSet}
           </div>
-          <div className="text-[9px] text-white/15 mt-1.5">{occupancyPct}% من الطاقة</div>
+          <div className="text-[9px] font-mono mt-2" style={{ color:"#374151" }}>
+            {occupancy}% طاقة
+          </div>
         </div>
       </div>
 
-      {/* ── Section 4: Sensors ── */}
-      <div className="grid grid-cols-2 gap-px border-b border-white/[0.06] bg-white/[0.04]">
-        <div className="bg-[#0e1219] px-5 py-3.5">
-          <Sensor
-            icon={Thermometer} label="الحرارة"
+      {/* ── ROW 4: Sensors ── */}
+      <div className="grid grid-cols-2" style={{ borderBottom:`1px solid ${EDGE}` }}>
+        <div className="px-5 py-4" style={{ borderRight:`1px solid ${EDGE}` }}>
+          <SensorBlock
+            icon={Thermometer} label="حرارة"
             value={tempShow} ideal={cs.idealTemp} unit="°C"
+            accentGood="#10b981"
           />
         </div>
-        <div className="bg-[#0e1219] px-5 py-3.5">
-          <Sensor
-            icon={Droplets} label="الرطوبة"
+        <div className="px-5 py-4">
+          <SensorBlock
+            icon={Droplets} label="رطوبة"
             value={humShow} ideal={cs.idealHum} unit="%"
+            accentGood="#0ea5e9"
           />
         </div>
       </div>
 
-      {/* ── Section 5: Embryo + Turning ── */}
-      <div className="px-5 py-2.5 border-b border-white/[0.06] flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Activity className="w-3.5 h-3.5 text-white/15 shrink-0" />
-          <span className="text-xs text-white/35">{cs.embryo}</span>
+      {/* ── ROW 5: Biology + Turning ── */}
+      <div
+        className="px-5 py-3 flex items-center justify-between"
+        style={{ borderBottom:`1px solid ${EDGE}` }}
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <FlaskConical className="w-3.5 h-3.5 shrink-0" style={{ color:"#374151" }} />
+          <div className="min-w-0">
+            <span className="text-[9px] uppercase tracking-widest me-1.5" style={{ color:"#374151" }}>
+              يوم {Math.min(cs.day,21)}:
+            </span>
+            <span className="text-xs" style={{ color: DIM }}>{cs.embryoStage}</span>
+          </div>
         </div>
-        <div className={`flex items-center gap-1.5 text-[11px] font-semibold shrink-0
-          ${cs.turningNeeded ? "text-amber-400" : "text-white/15"}`}>
-          <RotateCcw className={`w-3.5 h-3.5 ${cs.turningNeeded ? "animate-spin" : ""}`}
-            style={{ animationDuration:"3s" }} />
-          {cs.turningNeeded ? "تقليب مطلوب" : "لا تقليب"}
+        <div className="flex items-center gap-3 shrink-0">
+          {cs.candlingNext && (
+            <div className="text-[10px] font-mono" style={{ color:"#374151" }}>
+              تكلّس يوم <span style={{ color:"#2563eb" }}>{cs.candlingNext}</span>
+            </div>
+          )}
+          <div
+            className="flex items-center gap-1.5 text-[10px] font-semibold"
+            style={{ color: cs.turningNeeded ? "#fbbf24" : "#1f2937" }}
+          >
+            <RotateCcw
+              className="w-3.5 h-3.5"
+              style={{
+                animation: cs.turningNeeded ? "spin 3s linear infinite" : "none",
+              }}
+            />
+            {cs.turningNeeded ? "تقليب" : "لا تقليب"}
+          </div>
         </div>
       </div>
 
-      {/* ── Section 6: Alerts ── */}
-      {alerts.length > 0 && (
-        <div className="px-5 py-3 border-b border-white/[0.06] space-y-1.5">
-          {alerts.map((a, i) => (
-            <div key={i}
-              className={`flex items-start gap-2 text-xs rounded-lg px-3 py-2 border ${
-                a.level === "critical"
-                  ? "bg-red-500/[0.07] border-red-500/20 text-red-300"
-                  : "bg-amber-500/[0.07] border-amber-500/20 text-amber-300"
-              }`}>
-              {a.level === "critical"
-                ? <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                : <AlertCircle   className="w-3.5 h-3.5 shrink-0 mt-0.5" />}
-              {a.msg}
+      {/* ── ROW 6: Alerts ── */}
+      {(() => {
+        const alerts: { lvl:"crit"|"warn"; msg:string }[] = [];
+        if (!tempShow) alerts.push({ lvl:"warn", msg:"لم تُسجَّل درجة الحرارة" });
+        else if (Math.abs(tempShow - cs.idealTemp) > 1.2)
+          alerts.push({ lvl:"crit", msg:`حرارة ${tempShow}°C — المثالي ${cs.idealTemp}°C` });
+        if (cs.phase === "lockdown")
+          alerts.push({ lvl:"crit", msg:"يوم الإغلاق — أوقف التقليب وارفع الرطوبة إلى 70%" });
+        if (cs.phase === "hatching")
+          alerts.push({ lvl:"warn", msg:"فقس نشط — سجّل الصيصان عند كل فتحة" });
+        if (cs.phase === "overdue")
+          alerts.push({ lvl:"crit", msg:"تجاوزت الموعد — راجع الوضع فوراً" });
+        if (!alerts.length && cs.phase === "incubation")
+          alerts.push({ lvl:"warn", msg:"" }); // silent OK
+        const real = alerts.filter(a => a.msg);
+        if (!real.length) return (
+          <div className="px-5 py-2.5 flex items-center gap-2 text-xs"
+            style={{ borderBottom:`1px solid ${EDGE}`, color:"#059669" + "80" }}>
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            جميع المؤشرات طبيعية
+          </div>
+        );
+        return (
+          <div className="px-5 py-3 space-y-1.5" style={{ borderBottom:`1px solid ${EDGE}` }}>
+            {real.map((a, i) => (
+              <div key={i} className="flex items-start gap-2 text-xs rounded-lg px-3 py-2"
+                style={{
+                  background: a.lvl==="crit" ? "#ef4444" + "0d" : "#f59e0b" + "0d",
+                  border: `1px solid ${a.lvl==="crit" ? "#ef4444" : "#f59e0b"}25`,
+                  color: a.lvl==="crit" ? "#fca5a5" : "#fcd34d",
+                }}>
+                {a.lvl==="crit"
+                  ? <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  : <AlertCircle   className="w-3.5 h-3.5 shrink-0 mt-0.5" />}
+                {a.msg}
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+
+      {/* ── ROW 7: Financial ── */}
+      <div className="px-5 py-3" style={{ borderBottom:`1px solid ${EDGE}` }}>
+        <div className="flex items-center gap-1.5 mb-2">
+          <DollarSign className="w-3.5 h-3.5" style={{ color:"#374151" }} />
+          <span className="text-[9px] uppercase tracking-widest" style={{ color:"#374151" }}>
+            التوقعات المالية
+          </span>
+        </div>
+        <div className="grid grid-cols-3 gap-2 text-center">
+          {[
+            { l:"تكلفة البيض",    v:`${(eggCost/1000).toFixed(0)}K`,    c:"#f87171" },
+            { l:"إيراد متوقع",   v:`${(expectedRev/1000).toFixed(0)}K`, c:"#34d399" },
+            { l:"ربح متوقع",     v:`${(expectedProfit/1000).toFixed(0)}K`, c: expectedProfit>0?"#34d399":"#f87171" },
+          ].map(s => (
+            <div key={s.l} className="rounded-lg py-2" style={{ background:"#0d1219", border:`1px solid ${EDGE}` }}>
+              <div className="text-base font-black font-mono" style={{ color: s.c }}>{s.v}</div>
+              <div className="text-[9px] mt-0.5" style={{ color:"#374151" }}>{s.l}</div>
             </div>
           ))}
         </div>
-      )}
+        {cycle.notes && (
+          <p className="text-[10px] mt-2 italic line-clamp-1" style={{ color:"#374151" }}>
+            "{cycle.notes}"
+          </p>
+        )}
+      </div>
 
-      {/* ── Section 7: Notes ── */}
-      {cycle.notes && (
-        <div className="px-5 py-2.5 border-b border-white/[0.06]">
-          <p className="text-[11px] text-white/25 leading-relaxed line-clamp-2 italic">"{cycle.notes}"</p>
-        </div>
-      )}
-
-      {/* ── Section 8: Hatch Log ── */}
-      <div className="px-5 py-3">
-        <HatchLog cycleId={cycle.id} eggsSet={cycle.eggsSet} phase={cs.phase} />
+      {/* ── ROW 8: Hatch Log ── */}
+      <div className="px-5 pb-4 pt-3">
+        <HatchLogSection cycleId={cycle.id} eggsSet={cycle.eggsSet} phase={cs.phase} />
       </div>
     </div>
   );
 }
 
-// ─── Completed machine card (آخر دورة للفقاسة) ────────────────────────────────
+// ─── Completed / Last Cycle Card ──────────────────────────────────────────────
 
-function LastCycleCard({ inc, cycle }: { inc:Incubator; cycle:Cycle }) {
-  const eggsHatched = cycle.eggsHatched ?? 0;
-  const hatchRate   = cycle.eggsSet > 0 ? Math.round((eggsHatched / cycle.eggsSet) * 100) : 0;
-  const rateColor   = hatchRate >= 70 ? "text-emerald-400" : hatchRate >= 50 ? "text-amber-400" : "text-red-400";
-  const [showLog, setShowLog] = useState(false);
+function LastCycleCard({ inc, cycle }: { inc: Incubator; cycle: Cycle }) {
+  const hatched  = cycle.eggsHatched ?? 0;
+  const rate     = cycle.eggsSet > 0 ? Math.round((hatched / cycle.eggsSet) * 100) : 0;
+  const rateCol  = rate >= 70 ? "#34d399" : rate >= 50 ? "#fbbf24" : "#f87171";
+  const eggCost  = cycle.eggsSet * 500;
 
   return (
-    <div className="rounded-2xl ring-1 ring-slate-600/20 overflow-hidden bg-gradient-to-b from-[#0e1219] to-[#0a0d13]">
-      <div className="h-[2px] bg-slate-600/50" />
+    <div
+      className="rounded-2xl overflow-hidden"
+      style={{ background: CARD, border:`1px solid ${EDGE}` }}
+    >
+      <div className="h-[2px]" style={{ background:"#475569" }} />
 
       {/* Header */}
       <div className="px-5 pt-4 pb-3">
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 mb-0.5">
-              <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-slate-400">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[10px] font-bold uppercase tracking-[0.18em]" style={{ color:"#64748b" }}>
                 {inc.name}
               </span>
-              {inc.model && <span className="text-[10px] text-white/15 font-mono">{inc.model}</span>}
+              {inc.model && (
+                <span className="text-[10px] font-mono" style={{ color:"#1f2937" }}>{inc.model}</span>
+              )}
             </div>
-            <h2 className="text-xl font-black text-white/50 leading-tight">{cycle.batchName}</h2>
-            <p className="text-[10px] text-white/20 mt-0.5">آخر دورة مكتملة</p>
+            <h2 className="text-xl font-black mt-1 leading-tight" style={{ color:"#94a3b8" }}>
+              {cycle.batchName}
+            </h2>
+            <p className="text-[10px] mt-0.5" style={{ color:"#374151" }}>آخر دورة مكتملة</p>
           </div>
-          <div className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold
-            border border-slate-600/30 bg-slate-600/10 text-slate-400">
+          <div
+            className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold"
+            style={{ background:"#47556920", border:"1px solid #47556940", color:"#64748b" }}
+          >
             <CheckCircle2 className="w-3 h-3" />
             مكتملة
           </div>
@@ -675,106 +947,103 @@ function LastCycleCard({ inc, cycle }: { inc:Incubator; cycle:Cycle }) {
       </div>
 
       {/* Dates */}
-      <div className="mx-5 mb-3 rounded-xl bg-white/[0.03] border border-white/[0.06] divide-y divide-white/[0.05]">
-        <div className="grid grid-cols-2 divide-x divide-white/[0.05] rtl:divide-x-reverse">
-          <div className="px-3 py-2.5">
-            <div className="text-[9px] text-white/25 uppercase tracking-wider mb-1">تاريخ البداية</div>
-            <div className="text-sm font-semibold text-white/50">{fmtDateShort(cycle.startDate)}</div>
+      <div
+        className="grid grid-cols-2 divide-x text-center"
+        style={{ borderTop:`1px solid ${EDGE}`, borderBottom:`1px solid ${EDGE}` }}
+      >
+        {[
+          { label:"بدأت",   date: fmtDate(cycle.startDate),   sub: cycle.setTime ?? "——" },
+          { label:"انتهت",  date: fmtDate(cycle.actualHatchDate ?? cycle.expectedHatchDate), sub: "تاريخ الإنتهاء" },
+        ].map((d, i) => (
+          <div key={i} className="px-4 py-3" style={{ borderRight: i===0 ? `1px solid ${EDGE}` : "none" }}>
+            <div className="text-[9px] uppercase tracking-widest mb-1" style={{ color:"#374151" }}>{d.label}</div>
+            <div className="font-mono text-sm font-bold" style={{ color:"#64748b" }}>{d.date}</div>
+            <div className="font-mono text-xs mt-0.5" style={{ color:"#374151" }}>{d.sub}</div>
           </div>
-          <div className="px-3 py-2.5">
-            <div className="text-[9px] text-white/25 uppercase tracking-wider mb-1">تاريخ الإنتهاء</div>
-            <div className="text-sm font-semibold text-white/50">
-              {cycle.actualHatchDate
-                ? fmtDateShort(cycle.actualHatchDate)
-                : fmtDateShort(cycle.expectedHatchDate)}
-            </div>
-          </div>
-        </div>
+        ))}
       </div>
 
-      {/* Results */}
-      <div className="grid grid-cols-3 border-y border-white/[0.05]">
+      {/* Results grid */}
+      <div className="grid grid-cols-3" style={{ borderBottom:`1px solid ${EDGE}` }}>
         {[
-          { label:"بيض وُضع",   value:cycle.eggsSet.toLocaleString("ar-IQ"), color:"text-white/40" },
-          { label:"صوص فقست",   value:eggsHatched.toLocaleString("ar-IQ"),   color:"text-white/60" },
-          { label:"نسبة الفقس", value:`${hatchRate}%`,                       color:rateColor       },
-        ].map((s,i) => (
-          <div key={i} className={`px-3 py-4 text-center ${i<2?"border-e border-white/[0.05]":""}`}>
-            <div className="text-[9px] text-white/20 uppercase tracking-wider mb-1.5">{s.label}</div>
-            <div className={`text-3xl font-black font-mono leading-none ${s.color}`}>{s.value}</div>
+          { l:"بيض وُضع",    v: fmtNum(cycle.eggsSet), c:"#94a3b8" },
+          { l:"صيصان فقست", v: fmtNum(hatched),         c:"#cbd5e1" },
+          { l:"نسبة الفقس", v: `${rate}%`,               c: rateCol },
+        ].map((s, i) => (
+          <div key={i} className="py-4 text-center"
+            style={{ borderRight: i<2 ? `1px solid ${EDGE}` : "none" }}>
+            <div className="text-[9px] uppercase tracking-widest mb-1.5" style={{ color:"#374151" }}>
+              {s.l}
+            </div>
+            <div className="text-4xl font-black font-mono leading-none" style={{ color: s.c }}>
+              {s.v}
+            </div>
           </div>
         ))}
       </div>
 
       {/* Rate bar */}
-      <div className="px-5 py-3 border-b border-white/[0.05]">
-        <div className="w-full bg-white/[0.05] rounded-full h-1.5 overflow-hidden">
+      <div className="px-5 py-3" style={{ borderBottom:`1px solid ${EDGE}` }}>
+        <div className="w-full rounded-full h-1.5 overflow-hidden" style={{ background:"#1a2535" }}>
           <div
-            className={`h-full rounded-full ${hatchRate>=70?"bg-emerald-500":hatchRate>=50?"bg-amber-500":"bg-red-500"}`}
-            style={{ width:`${hatchRate}%`, transition:"width 1s ease" }}
+            className="h-full rounded-full transition-all duration-1000"
+            style={{ width:`${rate}%`, background: rateCol }}
           />
         </div>
-        {cycle.notes && (
-          <p className="text-[10px] text-white/20 mt-2 italic line-clamp-1">"{cycle.notes}"</p>
-        )}
+        <div className="flex justify-between mt-1.5 text-[9px] font-mono" style={{ color:"#374151" }}>
+          <span>0%</span>
+          <span>تكلفة البيض: {(eggCost/1000).toFixed(0)}K د.ع</span>
+          <span>100%</span>
+        </div>
       </div>
 
-      {/* Hatch log for completed */}
-      <div className="px-5 py-3">
-        <button
-          onClick={() => setShowLog(v=>!v)}
-          className="w-full flex items-center justify-between text-xs text-white/25 hover:text-white/45 transition-colors"
-        >
-          <span className="flex items-center gap-2">
-            <History className="w-3.5 h-3.5" />
-            سجل الفتحات لهذه الدورة
-          </span>
-          {showLog ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-        </button>
-        {showLog && (
-          <div className="mt-3">
-            <HatchLog cycleId={cycle.id} eggsSet={cycle.eggsSet} phase="completed" />
-          </div>
-        )}
+      {/* Hatch log */}
+      <div className="px-5 pb-4 pt-3">
+        <HatchLogSection cycleId={cycle.id} eggsSet={cycle.eggsSet} phase="completed" />
       </div>
     </div>
   );
 }
 
-// ─── History bar ──────────────────────────────────────────────────────────────
+// ─── History Bar ──────────────────────────────────────────────────────────────
 
-function HistoryBar({ cycles }: { cycles:Cycle[] }) {
+function HistoryBar({ cycles }: { cycles: Cycle[] }) {
   const done = cycles
     .filter(c => c.status === "completed" && c.eggsHatched != null)
     .sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    .slice(0, 6);
+    .slice(0, 7);
 
   if (done.length < 2) return null;
 
   const avg = Math.round(done.reduce((s,c) => s + (c.eggsHatched!/c.eggsSet), 0) / done.length * 100);
 
   return (
-    <div className="border-t border-white/[0.06] px-5 py-4">
+    <div className="px-5 py-4" style={{ borderTop:`1px solid ${EDGE}` }}>
       <div className="flex items-center justify-between mb-3">
-        <span className="text-[10px] text-white/25 uppercase tracking-widest">سجل الدورات المكتملة</span>
-        <span className={`text-[10px] font-bold ${avg>=65?"text-emerald-400":"text-amber-400"}`}>
+        <span className="text-[9px] uppercase tracking-widest" style={{ color:"#374151" }}>
+          سجل الدورات
+        </span>
+        <span className="text-xs font-bold font-mono" style={{ color: avg>=65?"#34d399":"#fbbf24" }}>
           متوسط {avg}%
         </span>
       </div>
-      <div className="space-y-2">
+      <div className="space-y-1.5">
         {done.map(c => {
           const r = Math.round((c.eggsHatched!/c.eggsSet)*100);
-          const col = r>=70?"bg-emerald-500":r>=50?"bg-amber-500":"bg-red-500";
-          const tcol = r>=70?"text-emerald-400":r>=50?"text-amber-400":"text-red-400";
+          const col = r>=70?"#34d399":r>=50?"#fbbf24":"#f87171";
           return (
-            <div key={c.id} className="flex items-center gap-3 text-xs">
-              <span className={`w-8 font-black font-mono shrink-0 ${tcol}`}>{r}%</span>
-              <div className="flex-1 bg-white/[0.05] rounded-full h-1.5 overflow-hidden">
-                <div className={`h-full rounded-full ${col}`} style={{ width:`${r}%` }} />
+            <div key={c.id} className="flex items-center gap-3">
+              <span className="w-7 text-right font-black font-mono text-xs shrink-0" style={{ color: col }}>
+                {r}%
+              </span>
+              <div className="flex-1 rounded-full h-1" style={{ background:"#1a2535" }}>
+                <div className="h-full rounded-full" style={{ width:`${r}%`, background: col }} />
               </div>
-              <span className="text-white/25 shrink-0 truncate max-w-[110px]">{c.batchName}</span>
-              <span className="text-white/15 shrink-0 font-mono text-[10px]">
-                {c.eggsHatched?.toLocaleString("ar-IQ")}/{c.eggsSet.toLocaleString("ar-IQ")}
+              <span className="text-[10px] truncate max-w-[100px] font-mono" style={{ color:"#374151" }}>
+                {c.batchName}
+              </span>
+              <span className="text-[9px] font-mono shrink-0" style={{ color:"#1f2937" }}>
+                {fmtDate(c.startDate)}
               </span>
             </div>
           );
@@ -784,10 +1053,9 @@ function HistoryBar({ cycles }: { cycles:Cycle[] }) {
   );
 }
 
-// ─── Main ═════════════════════════════════════════════════════════════════════
+// ─── Main Export ══════════════════════════════════════════════════════════════
 
 export default function IncubationCenter() {
-  useLanguage(); // for future i18n
   const base = import.meta.env.BASE_URL ?? "/";
 
   // 1-second clock
@@ -797,28 +1065,27 @@ export default function IncubationCenter() {
     return () => clearInterval(id);
   }, []);
 
-  // SSE
-  const sseRef = useRef(0);
-  const [liveMap, setLiveMap] = useState<Map<number,Cycle>>(new Map());
-  const [conn, setConn] = useState<"connecting"|"sse"|"poll">("connecting");
+  // SSE live updates
+  const sseRef  = useRef(0);
+  const [liveMap, setLiveMap] = useState<Map<number, Cycle>>(new Map());
+  const [conn,    setConn]    = useState<"connecting"|"sse"|"poll">("connecting");
 
   useEffect(() => {
-    let cancelled = false, es: EventSource|null = null, pt: ReturnType<typeof setInterval>|null = null;
-    const apply = (_st:number, cycles:Cycle[]) => {
+    let cancelled=false, es:EventSource|null=null, pt:ReturnType<typeof setInterval>|null=null;
+    const apply = (_:number, cycles:Cycle[]) => {
       if (!cancelled) setLiveMap(new Map(cycles.map(c=>[c.id,c])));
     };
     const poll = async () => {
-      try { const d:Cycle[] = await apiFetch("/dashboard/active-cycles"); if (!cancelled) apply(0,d); } catch {}
+      try { const d:Cycle[] = await apiFetch("/dashboard/active-cycles"); if(!cancelled) apply(0,d); } catch {}
     };
-    const startPoll = () => { if (cancelled) return; setConn("poll"); poll(); pt=setInterval(poll,30_000); };
-    const connect = () => {
-      if (cancelled) return;
+    const startPoll = () => { if(cancelled) return; setConn("poll"); poll(); pt=setInterval(poll,30_000); };
+    const connect   = () => {
+      if(cancelled) return;
       try {
         es = new EventSource(`${base}api/hatching/live-stream`,{withCredentials:true});
-        es.onopen = () => { if (!cancelled) { sseRef.current=0; setConn("sse"); } };
+        es.onopen = () => { if(!cancelled){sseRef.current=0;setConn("sse");} };
         es.onmessage = ev => {
-          try { const p=JSON.parse(ev.data) as {serverTime:number;cycles:Cycle[]}; apply(p.serverTime,p.cycles); if(!cancelled) setConn("sse"); }
-          catch {}
+          try { const p=JSON.parse(ev.data) as {serverTime:number;cycles:Cycle[]}; apply(p.serverTime,p.cycles); if(!cancelled) setConn("sse"); } catch {}
         };
         es.onerror = () => { es?.close(); es=null; sseRef.current++; if(sseRef.current>=3) startPoll(); else if(!cancelled) setTimeout(connect,5_000); };
       } catch { startPoll(); }
@@ -827,54 +1094,56 @@ export default function IncubationCenter() {
     return () => { cancelled=true; es?.close(); if(pt) clearInterval(pt); };
   }, [base]);
 
-  // Data
   const { data: incubators=[], isLoading } = useQuery<Incubator[]>({
-    queryKey:["incubators"], queryFn:()=>apiFetch("/incubators"), refetchInterval:60_000,
-  });
-  const { data: allCycles=[] } = useQuery<Cycle[]>({
-    queryKey:["all-cycles"], queryFn:()=>apiFetch("/hatching-cycles"), refetchInterval:120_000,
+    queryKey:["incubators"],
+    queryFn: ()=>apiFetch("/incubators"),
+    refetchInterval:60_000,
   });
 
-  // Build per-machine cycle: SSE → activeCycle → last completed
+  const { data: allCycles=[] } = useQuery<Cycle[]>({
+    queryKey:["all-cycles"],
+    queryFn: ()=>apiFetch("/hatching-cycles"),
+    refetchInterval:120_000,
+  });
+
+  // Build machine → cycle mapping
   const machines = useMemo(() => {
     return incubators.map(inc => {
-      // SSE live data
-      let cycle: Cycle|null = null;
+      // SSE live → activeCycle → last completed cycle
+      let active: Cycle|null = null;
       for (const [,c] of liveMap) {
-        if (c.incubatorId === inc.id) { cycle=c; break; }
+        if (c.incubatorId === inc.id) { active=c; break; }
       }
-      // activeCycle from endpoint
-      if (!cycle && inc.activeCycle) cycle = inc.activeCycle;
+      if (!active && inc.activeCycle) active = inc.activeCycle;
 
-      const isActive = cycle && (cycle.status === "incubating" || cycle.status === "hatching");
-      if (isActive) return { inc, cycle: cycle!, mode: "active" as const };
+      const isRunning = active && (active.status==="incubating"||active.status==="hatching");
 
-      // Find last cycle for this machine (any status)
-      const machineCycles = allCycles
-        .filter(c => c.incubatorId === inc.id)
-        .sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      const lastCycle = machineCycles[0] ?? null;
-      return { inc, cycle: lastCycle, mode: "last" as const };
+      if (isRunning) return { inc, cycle:active!, mode:"active" as const };
+
+      const last = allCycles
+        .filter(c=>c.incubatorId===inc.id)
+        .sort((a,b)=>new Date(b.createdAt).getTime()-new Date(a.createdAt).getTime())[0] ?? null;
+
+      return { inc, cycle:last, mode:"last" as const };
     });
   }, [incubators, liveMap, allCycles]);
 
-  const activeCount = machines.filter(m => m.mode === "active").length;
-  const totalEggs   = machines
-    .filter(m => m.mode === "active" && m.cycle)
-    .reduce((s,m) => s + m.cycle!.eggsSet, 0);
-
-  const completed = allCycles.filter(c => c.status==="completed" && c.eggsHatched!=null);
-  const histRate  = completed.length > 0
+  const activeCount = machines.filter(m=>m.mode==="active").length;
+  const totalEggs   = machines.filter(m=>m.mode==="active"&&m.cycle).reduce((s,m)=>s+m.cycle!.eggsSet,0);
+  const completed   = allCycles.filter(c=>c.status==="completed"&&c.eggsHatched!=null);
+  const histRate    = completed.length > 0
     ? Math.round(completed.reduce((s,c)=>s+(c.eggsHatched!/c.eggsSet),0)/completed.length*100)
     : 0;
 
+  // ── Render ──────────────────────────────────────────────────────────────────
+
   if (isLoading) {
     return (
-      <div className="rounded-2xl bg-[#0d1117] border border-white/[0.07] overflow-hidden animate-pulse">
-        <div className="h-14 bg-white/[0.03] border-b border-white/[0.05]" />
+      <div className="rounded-2xl animate-pulse" style={{ background:CARD, border:`1px solid ${EDGE}` }}>
+        <div className="h-12" style={{ background:"#0a0d12", borderBottom:`1px solid ${EDGE}` }} />
         <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="h-80 rounded-xl bg-white/[0.03]" />
-          <div className="h-80 rounded-xl bg-white/[0.03]" />
+          <div className="h-96 rounded-xl" style={{ background: BG }} />
+          <div className="h-96 rounded-xl" style={{ background: BG }} />
         </div>
       </div>
     );
@@ -882,83 +1151,81 @@ export default function IncubationCenter() {
 
   if (incubators.length === 0) {
     return (
-      <div className="rounded-2xl bg-[#0d1117] border border-white/[0.07] py-16 text-center">
-        <Egg className="w-10 h-10 text-white/10 mx-auto mb-3" />
-        <p className="text-white/30 text-sm">لا توجد فقاسات مسجلة</p>
+      <div className="rounded-2xl py-16 text-center" style={{ background:CARD, border:`1px solid ${EDGE}` }}>
+        <Egg className="w-10 h-10 mx-auto mb-3" style={{ color:"#1f2937" }} />
+        <p className="text-sm" style={{ color:"#374151" }}>لا توجد فقاسات مسجلة</p>
       </div>
     );
   }
 
   return (
-    <div className="rounded-2xl bg-[#0d1117] border border-white/[0.07] overflow-hidden shadow-2xl">
+    <div className="rounded-2xl overflow-hidden" style={{ background:BG, border:`1px solid ${EDGE}` }}>
 
-      {/* ── Header bar ── */}
-      <div className="flex items-center justify-between px-5 py-3 border-b border-white/[0.06] bg-[#0a0d12]/80">
+      {/* ── Top bar ── */}
+      <div
+        className="flex items-center justify-between px-5 py-3"
+        style={{ background:CARD, borderBottom:`1px solid ${EDGE}` }}
+      >
         <div className="flex items-center gap-3">
-          <div className="relative w-7 h-7 rounded-lg bg-blue-500/10 border border-blue-500/20
-            flex items-center justify-center">
-            <Egg className="w-4 h-4 text-blue-400" />
+          <div className="relative w-7 h-7 rounded-lg flex items-center justify-center"
+            style={{ background:"#1e40af15", border:"1px solid #1e40af30" }}>
+            <Egg className="w-4 h-4" style={{ color:"#3b82f6" }} />
             {conn==="sse" && (
-              <span className="absolute -top-[3px] -right-[3px] w-2 h-2 rounded-full
-                bg-emerald-400 border-2 border-[#0a0d12] animate-pulse" />
+              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full border-2 bg-emerald-400 animate-pulse"
+                style={{ borderColor:CARD }} />
             )}
           </div>
           <div>
             <div className="text-sm font-bold text-white">مركز التفقيس</div>
             <div className="flex items-center gap-1.5 text-[10px] mt-0.5">
-              {conn==="sse"        && <><Wifi       className="w-3 h-3 text-emerald-400"/><span className="text-emerald-500">مباشر</span></>}
-              {conn==="poll"       && <><RefreshCw  className="w-3 h-3 text-amber-400"/><span className="text-amber-500">دوري</span></>}
-              {conn==="connecting" && <><WifiOff    className="w-3 h-3 text-white/15 animate-pulse"/><span className="text-white/20">جاري…</span></>}
+              {conn==="sse"         && <><Wifi      className="w-3 h-3" style={{color:"#34d399"}}/><span style={{color:"#34d399"}}>LIVE</span></>}
+              {conn==="poll"        && <><RefreshCw className="w-3 h-3" style={{color:"#fbbf24"}}/><span style={{color:"#fbbf24"}}>POLL</span></>}
+              {conn==="connecting"  && <><WifiOff   className="w-3 h-3 animate-pulse" style={{color:"#374151"}}/><span style={{color:"#374151"}}>…</span></>}
             </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
           {activeCount > 0 && (
-            <span className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1
-              rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400">
+            <span className="flex items-center gap-1.5 text-[10px] font-mono font-bold px-2.5 py-1 rounded"
+              style={{ background:"#1e40af15", border:"1px solid #1e40af30", color:"#93c5fd" }}>
               <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
-              {activeCount} {activeCount===1?"نشطة":"نشطة"}
+              {activeCount} نشطة
             </span>
           )}
           {totalEggs > 0 && (
-            <span className="text-[11px] text-white/25 bg-white/[0.04] rounded-full px-2.5 py-1">
-              {totalEggs.toLocaleString("ar-IQ")} بيضة
+            <span className="text-[10px] font-mono px-2.5 py-1 rounded"
+              style={{ background:"#ffffff08", border:`1px solid ${EDGE}`, color: DIM }}>
+              {fmtNum(totalEggs)} بيضة
             </span>
           )}
           {histRate > 0 && (
-            <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border ${
-              histRate>=65
-                ?"bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
-                :"bg-amber-500/10 border-amber-500/20 text-amber-400"
-            }`}>{histRate}% متوسط</span>
+            <span className="text-[10px] font-mono font-bold px-2.5 py-1 rounded"
+              style={{
+                background: histRate>=65 ? "#05966915" : "#d9770615",
+                border: `1px solid ${histRate>=65?"#05966940":"#d9770640"}`,
+                color:   histRate>=65 ? "#34d399"  : "#fbbf24",
+              }}>
+              {histRate}% avg
+            </span>
           )}
         </div>
       </div>
 
       {/* ── Machine grid ── */}
       <div className="p-4">
-        <div className={`grid gap-5 ${machines.length === 1 ? "grid-cols-1 max-w-xl mx-auto" : "grid-cols-1 lg:grid-cols-2"}`}>
+        <div className={`grid gap-5 ${machines.length === 1 ? "max-w-xl mx-auto" : "grid-cols-1 lg:grid-cols-2"}`}>
           {machines.map(({ inc, cycle, mode }) => {
-            if (mode === "active" && cycle) {
-              return (
-                <ActiveCard key={inc.id} inc={inc} cycle={cycle} nowMs={nowMs} />
-              );
-            }
-            if (cycle) {
-              return (
-                <LastCycleCard key={inc.id} inc={inc} cycle={cycle} />
-              );
-            }
-            // No cycle at all — bare idle card
+            if (mode==="active" && cycle)
+              return <ActiveCard key={inc.id} inc={inc} cycle={cycle} nowMs={nowMs} />;
+            if (cycle)
+              return <LastCycleCard key={inc.id} inc={inc} cycle={cycle} />;
             return (
-              <div key={inc.id}
-                className="rounded-2xl ring-1 ring-slate-700/20 bg-[#0e1219] flex flex-col items-center justify-center py-12 gap-3">
-                <Egg className="w-8 h-8 text-white/10" />
-                <div className="text-center">
-                  <div className="text-sm font-bold text-white/25">{inc.name}</div>
-                  <div className="text-xs text-white/15 mt-0.5">لا توجد دورات بعد</div>
-                </div>
+              <div key={inc.id} className="rounded-2xl flex flex-col items-center justify-center py-14"
+                style={{ background:CARD, border:`1px solid ${EDGE}` }}>
+                <Egg className="w-8 h-8 mb-3" style={{ color:"#1f2937" }} />
+                <div className="text-sm font-bold" style={{ color:"#374151" }}>{inc.name}</div>
+                <div className="text-xs mt-1" style={{ color:"#1f2937" }}>لا توجد دورات</div>
               </div>
             );
           })}
@@ -967,7 +1234,6 @@ export default function IncubationCenter() {
 
       {/* ── History ── */}
       <HistoryBar cycles={allCycles} />
-
     </div>
   );
 }
